@@ -1,9 +1,9 @@
 """
-A coding assistant that uses the AgentLib agent library to help with coding tasks.
+A coding assistant that uses the Fury agent library to help with coding tasks.
 
 This example is based on the Pi.dev coding assistant example.
 
-This example is a semi-vibe-coded clone of the Pi.dev coding assistant example to use the AgentLib agent library.
+This example is a semi-vibe-coded clone of the Pi.dev coding assistant example to use the Fury agent library.
 
 It strips away most of Pi's features but does include:
 - Auto-compaction of history.
@@ -11,7 +11,7 @@ It strips away most of Pi's features but does include:
 - SOUL.md and MEMORY.md injection.
 - A handful of useful tools for the agent to use.
 
-It is a simple example of how to use the AgentLib agent library to create a coding assistant.
+It is a simple example of how to use the Fury agent library to create a coding assistant.
 """
 
 import asyncio

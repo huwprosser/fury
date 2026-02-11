@@ -1,4 +1,4 @@
-# AgentLib
+# Fury
 
 I'm kind of fed up with complicated tooling for the worlds most powerful technology, so I built this.
 
@@ -18,13 +18,13 @@ A flexible and powerful AI agent library for Python, designed to build agents wi
 Install directly from github using:
 
 ```bash
-uv add git+https://github.com/huwprosser/agent-lib.git
+uv add git+https://github.com/huwprosser/fury.git
 ```
 
 If you also want example dependencies:
 
 ```bash
-uv add "git+https://github.com/huwprosser/agent-lib.git[examples]"
+uv add "git+https://github.com/huwprosser/fury.git[examples]"
 ```
 
 For local development in this repository:
@@ -39,7 +39,7 @@ Here is a simple example of how to create a chat agent:
 
 ```python
 import asyncio
-from agent_lib import Agent
+from fury import Agent
 
 async def main():
     # Initialize the agent
