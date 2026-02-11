@@ -1,0 +1,31 @@
+[project]
+name = "agent-lib"
+version = "0.1.0"
+description = "A flexible AI agent library with tool support"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "openai",
+    "requests",
+    "termcolor",
+    "librosa",
+    "openai-whisper",
+    "apscheduler>=3.11.2",
+]
+
+[project.optional-dependencies]
+examples = [
+    "apscheduler",
+    "pydantic",
+    "python-dotenv",
+]
+test = [
+    "pytest",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/agent_lib"]

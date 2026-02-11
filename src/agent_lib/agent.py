@@ -1,0 +1,494 @@
+import io
+import json
+import logging
+import inspect
+import base64
+import mimetypes
+import requests
+import asyncio
+import librosa
+import whisper
+from termcolor import cprint
+from dataclasses import dataclass
+from typing import (
+    AsyncGenerator,
+    Callable,
+    Dict,
+    List,
+    Optional,
+    Tuple,
+    Any,
+    Union,
+)
+from openai import AsyncOpenAI
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass
+class ToolResult:
+    content: Any
+    output_schema: Optional[Dict[str, Any]] = None
+
+
+@dataclass
+class Tool:
+    name: str
+    description: str
+    execute: Callable[..., Any]
+    announcement_phrase: Union[str, Callable[[Dict[str, Any]], str]]
+    input_schema: Dict[str, Any]
+    output_schema: Dict[str, Any]
+
+
+def create_tool(
+    id: str,
+    description: str,
+    execute: Callable[..., Any],
+    announcement_phrase: Union[str, Callable[[Dict[str, Any]], str]],
+    input_schema: Dict[str, Any],
+    output_schema: Dict[str, Any],
+) -> Tool:
+    return Tool(
+        name=id,
+        description=description,
+        execute=execute,
+        input_schema=input_schema,
+        output_schema=output_schema,
+        announcement_phrase=announcement_phrase,
+    )
+
+
+class Agent:
+    def __init__(
+        self,
+        model: str,
+        system_prompt: str,
+        tools: Optional[List[Tool]] = None,
+        base_url: str = "http://127.0.0.1:8080/v1",
+        api_key: str = "",
+        generation_params: Optional[Dict[str, Any]] = None,
+        max_tool_rounds: int = 50,
+        parallel_tool_calls: bool = True,
+    ):
+        """
+        Initialize the Agent.
+
+        Args:
+            model: The model to use.
+            system_prompt: The system prompt to use.
+            tools: The tools to use.
+            base_url: The base URL to use.
+            api_key: The API key to use.
+            generation_params: The generation parameters to use.
+            max_tool_rounds: The maximum number of tool rounds allowed before giving up.
+            parallel_tool_calls: Whether to allow parallel tool calls.
+        """
+        self.model = model
+        self.system_prompt = system_prompt
+        self.max_tool_rounds = max_tool_rounds
+        self.stt = None
+        self.base_url = base_url
+        self.history: List[Dict[str, Any]] = []
+        self.tools: List[Dict[str, Any]] = []
+        self.available_functions: Dict[str, Callable] = {}
+        self.tool_objects: Dict[str, Tool] = {}
+        self.generation_params = generation_params or {}
+        self.parallel_tool_calls = parallel_tool_calls
+        if tools:
+            for tool in tools:
+                if not isinstance(tool, Tool):
+                    self.tools.append(tool)
+                    continue
+
+                params = tool.input_schema
+                self.tools.append(
+                    {
+                        "type": "function",
+                        "function": {
+                            "name": tool.name,
+                            "description": tool.description,
+                            "parameters": params,
+                        },
+                    }
+                )
+                self.available_functions[tool.name] = tool.execute
+                self.tool_objects[tool.name] = tool
+
+        if self.parallel_tool_calls:
+            self._register_parallel_tool()
+
+        if self.system_prompt:
+            self.history.append({"role": "system", "content": self.system_prompt})
+
+        self._check_server_status()
+
+        self.client = AsyncOpenAI(base_url=base_url, api_key=api_key)
+        self.show_yourself()
+
+    def add_image_to_history(self, history: List[Dict[str, Any]], image_path: str):
+        with open(image_path, "rb") as image_file:
+            base64_image = base64.b64encode(image_file.read()).decode("utf-8")
+        # Determine mime type
+        mime_type, _ = mimetypes.guess_type(image_path)
+        if not mime_type:
+            mime_type = "image/jpeg"
+        history.append(
+            {
+                "type": "image_url",
+                "image_url": {"url": f"data:{mime_type};base64,{base64_image}"},
+            }
+        )
+
+        return history
+
+    def add_voice_message_to_history(
+        self, history: List[Dict[str, Any]], base64_audio_bytes: str
+    ):
+        if not self.stt:
+            self.stt = whisper.load_model("base.en")
+
+        audio = librosa.load(
+            io.BytesIO(base64.b64decode(base64_audio_bytes)), sr=16000
+        )[0]
+        result = self.stt.transcribe(audio)
+        history.append({"role": "user", "content": result["text"]})
+        return history
+
+    async def chat(
+        self,
+        history: List[Dict[str, Any]],
+        reasoning: bool = False,
+    ) -> AsyncGenerator[
+        Tuple[Optional[str], Optional[str], Optional[Dict[str, Any]]], None
+    ]:
+        """
+        Chat with the agent. Streams the response from the agent.
+
+        Args:
+            history: List of messages in the conversation.
+
+        Returns:
+            AsyncGenerator of tuples containing the chunk, reasoning, and tool call.
+        """
+
+        def format_multimodal_content(res):
+            if isinstance(res, dict) and "image_base64" in res:
+                description = res.get("description", "Image captured from webcam.")
+                user_message = {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": description,
+                        },
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:image/jpeg;base64,{res['image_base64']}"
+                            },
+                        },
+                    ],
+                }
+                return description, user_message
+            return str(res), None
+
+        try:
+            if not reasoning and "qwen" in self.model.lower():
+                history[-1]["content"] = f"{history[-1]['content']} /no_think"
+
+            if history is not None:
+                # Ensure the system prompt is included when caller provides history.
+                active_history = list(history)
+                if self.system_prompt and not any(
+                    msg.get("role") == "system" for msg in active_history
+                ):
+                    active_history = [
+                        {"role": "system", "content": self.system_prompt},
+                        *active_history,
+                    ]
+
+            def tool_error_payload(call_id: str, name: str, msg: str):
+                return (
+                    {
+                        "tool_call_id": call_id,
+                        "role": "tool",
+                        "name": name,
+                        "content": msg,
+                    },
+                    msg,
+                )
+
+            for _ in range(self.max_tool_rounds):
+                tool_calls: List[Dict[str, Any]] = []
+                kwargs: Dict[str, Any] = {
+                    "model": self.model,
+                    "messages": active_history,
+                    "stream": True,
+                }
+                if not reasoning:
+                    kwargs["extra_body"] = {
+                        "chat_template_kwargs": {"enable_thinking": False}
+                    }
+                if self.tools:
+                    kwargs["tools"] = self.tools
+
+                if self.generation_params:
+                    kwargs.update(self.generation_params)
+
+                completion = await self.client.chat.completions.create(**kwargs)
+
+                async for chunk in completion:  # type: ignore
+                    delta = chunk.choices[0].delta
+                    if delta.tool_calls:
+                        for tc_chunk in delta.tool_calls:
+                            if len(tool_calls) <= tc_chunk.index:
+                                tool_calls.append(
+                                    {
+                                        "id": "",
+                                        "type": "function",
+                                        "function": {"name": "", "arguments": ""},
+                                    }
+                                )
+                            tc = tool_calls[tc_chunk.index]
+                            if tc_chunk.id:
+                                tc["id"] += tc_chunk.id
+                            if tc_chunk.function.name:
+                                tc["function"]["name"] += tc_chunk.function.name
+                            if tc_chunk.function.arguments:
+                                tc["function"][
+                                    "arguments"
+                                ] += tc_chunk.function.arguments
+
+                    reasoning_content = getattr(delta, "reasoning_content", None)
+                    if reasoning_content:
+                        yield None, reasoning_content, None
+                        continue
+
+                    if delta.content:
+                        yield delta.content, None, None
+
+                if not tool_calls:
+                    return
+
+                active_history.append({"role": "assistant", "tool_calls": tool_calls})
+
+                for tool_call in tool_calls:
+                    fname = tool_call["function"]["name"]
+                    call_id = tool_call["id"]
+
+                    if fname not in self.available_functions:
+                        continue
+
+                    try:
+                        args = json.loads(tool_call["function"]["arguments"])
+                    except json.JSONDecodeError as e:
+                        payload, error_msg = tool_error_payload(
+                            call_id, fname, f"Error decoding arguments for {fname}: {e}"
+                        )
+                        yield error_msg, None, None
+                        active_history.append(payload)
+                        continue
+
+                    try:
+                        args = self._filter_args(fname, args)
+                        announcement = self._build_tool_announcement_phrase(fname, args)
+                        yield None, None, {
+                            "tool_name": fname,
+                            "arguments": args,
+                            "announcement_phrase": announcement,
+                        }
+
+                        func = self.available_functions[fname]
+                        result = (
+                            await func(**args)
+                            if inspect.iscoroutinefunction(func)
+                            else func(**args)
+                        )
+                    except Exception as e:
+                        logger.exception(f"Error executing tool {fname}")
+                        result = f"Error: {str(e)}"
+
+                    if isinstance(result, ToolResult):
+                        if result.output_schema:
+                            yield None, f"data_{json.dumps(result.output_schema)}", None
+                        result = result.content
+
+                    yield None, None, {"tool_name": fname, "result": result}
+
+                    tool_content, vision_message = format_multimodal_content(result)
+                    active_history.append(
+                        {
+                            "tool_call_id": call_id,
+                            "role": "tool",
+                            "name": fname,
+                            "content": tool_content,
+                        }
+                    )
+                    if vision_message:
+                        active_history.append(vision_message)
+
+            yield "Max tool rounds reached", None, None
+        except Exception as e:
+            logger.exception(f"Error in chat: {e}")
+            yield str(e), None, None
+
+    def show_yourself(self):
+        info = [
+            ("Model", self.model),
+            ("Tools", [tool["function"]["name"] for tool in self.tools]),
+            (
+                "System prompt",
+                (self.system_prompt[:10000] + "...") if self.system_prompt else None,
+            ),
+        ]
+
+        for label, value in info:
+            cprint(f"{label}: ", "yellow", end="")
+            if label == "Thinking":
+                val, color = value
+                cprint(val, color)
+            else:
+                print(value)
+
+    def _build_tool_announcement_phrase(
+        self, tool_name: str, arguments: Dict[str, Any]
+    ) -> str:
+        if tool_name in self.tool_objects:
+            phrase = str(self.tool_objects[tool_name].announcement_phrase)
+            return f"Using {phrase.replace('[args]', str(arguments))}..."
+
+        return f"Using {tool_name}..."
+
+    def _check_server_status(self):
+        def _model_loaded():
+            try:
+                response = requests.get(f"{self.base_url}/models", timeout=1)
+                if response.status_code != 200:
+                    return None
+                models = response.json().get("models", [])
+                return any(m.get("model") == self.model for m in models)
+            except Exception:
+                return None
+
+        loaded = _model_loaded()
+
+        if loaded is True:
+            cprint("Server Status: ", "yellow", end="")
+            cprint("OK", "green")
+            return
+        elif loaded is False:
+            cprint(
+                f"Server running but model {self.model} not available or loaded.",
+                "red",
+            )
+        else:
+            cprint("Server not reachable", "red")
+        exit(1)
+
+    def _normalize_tool_name(self, name: str) -> str:
+        if name.startswith("functions."):
+            return name.split(".", 1)[1]
+        return name
+
+    def _register_parallel_tool(self) -> None:
+        tool_name = "multi_tool_use.parallel"
+        if tool_name in self.available_functions:
+            return
+
+        self.available_functions[tool_name] = self._execute_parallel_tool
+        self.tools.append(
+            {
+                "type": "function",
+                "function": {
+                    "name": tool_name,
+                    "description": "Run multiple tool calls in parallel.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "tool_uses": {
+                                "type": "array",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "recipient_name": {"type": "string"},
+                                        "parameters": {"type": "object"},
+                                    },
+                                    "required": ["recipient_name", "parameters"],
+                                },
+                            }
+                        },
+                        "required": ["tool_uses"],
+                    },
+                },
+            }
+        )
+
+    def _filter_args(self, tool_name: str, args: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Filter arguments to ensure they match the tool's input schema.
+        Removes any arguments that are not defined in the schema's properties.
+        """
+        if tool_name not in self.tool_objects:
+            return args
+
+        tool = self.tool_objects[tool_name]
+        schema = tool.input_schema
+
+        if not isinstance(schema, dict):
+            return args
+
+        # If schema has 'properties', we filter to only allow those keys
+        properties = schema.get("properties")
+        if properties is not None:
+            allowed_keys = set(properties.keys())
+            filtered_args = {k: v for k, v in args.items() if k in allowed_keys}
+
+            dropped_keys = set(args.keys()) - set(filtered_args.keys())
+            if dropped_keys:
+                logger.warning(
+                    f"Dropped unexpected arguments for tool {tool_name}: {dropped_keys}"
+                )
+
+            return filtered_args
+
+        return args
+
+    async def _execute_parallel_tool(self, tool_uses: List[Dict[str, Any]]):
+        async def run_tool(tool_use: Dict[str, Any]) -> Dict[str, Any]:
+            recipient_name = tool_use.get("recipient_name")
+            if not recipient_name:
+                return {"error": "Missing recipient_name", "tool_use": tool_use}
+            params = tool_use.get("parameters") or {}
+            tool_name = self._normalize_tool_name(recipient_name)
+            params = self._filter_args(tool_name, params)
+            if tool_name == "multi_tool_use.parallel":
+                return {
+                    "recipient_name": recipient_name,
+                    "error": "multi_tool_use.parallel cannot invoke itself",
+                }
+            if tool_name not in self.available_functions:
+                return {
+                    "recipient_name": recipient_name,
+                    "error": f"Function {tool_name} does not exist",
+                }
+            func = self.available_functions[tool_name]
+            try:
+                if inspect.iscoroutinefunction(func):
+                    result = await func(**params)
+                else:
+                    result = await asyncio.to_thread(func, **params)
+                if isinstance(result, ToolResult):
+                    result = result.content
+                return {"recipient_name": recipient_name, "result": result}
+            except Exception as exc:
+                logger.exception(f"Error executing tool {tool_name}")
+                return {
+                    "recipient_name": recipient_name,
+                    "error": f"Error executing {tool_name}: {exc}",
+                }
+
+        tasks = [run_tool(tool_use) for tool_use in (tool_uses or [])]
+        if not tasks:
+            return []
+        return await asyncio.gather(*tasks)
