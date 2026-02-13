@@ -1,6 +1,6 @@
 import asyncio
 from datetime import datetime
-from agent_lib import Agent, create_tool
+from fury import Agent, create_tool
 from apscheduler.schedulers.blocking import BlockingScheduler
 from apscheduler.triggers.cron import CronTrigger
 
