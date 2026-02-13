@@ -1,6 +1,12 @@
 <p align="center">
   <img src="fury.png" alt="Fury Logo" width="192" />
 </p>
+<p align="center">
+  <a href="https://discord.gg/xC9Yd6VH2a">
+    <img src="https://img.shields.io/discord/841085263266447400?logo=discord&style=for-the-badge" alt="Discord">
+  </a>
+</p>
+
 <h1 align="center">Fury</h1>
 
 I'm kind of fed up with complicated tooling for the worlds most powerful technology, so I built this.
