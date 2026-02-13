@@ -30,7 +30,7 @@ from typing import Any, Dict, List, Optional
 from dotenv import load_dotenv
 from pydantic import BaseModel
 
-from agent_lib import Agent, create_tool
+from fury import Agent, create_tool
 
 MAX_LINES = 2000
 MAX_BYTES = 100 * 1024
