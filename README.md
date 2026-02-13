@@ -10,7 +10,6 @@
   </a>
 </p>
 
-Easy-to-use tooling for the worlds most powerful technology.
 
 A flexible and powerful AI agent library for Python, designed to build agents with tool support, multimodal capabilities, and streaming responses.
 
