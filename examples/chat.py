@@ -1,5 +1,5 @@
 import asyncio
-from agent_lib import Agent
+from fury import Agent
 
 
 agent = Agent(
