@@ -10,7 +10,7 @@
   </a>
 </p>
 
-I'm kind of fed up with complicated tooling for the worlds most powerful technology, so I built this.
+Easy-to-use tooling for the worlds most powerful technology.
 
 A flexible and powerful AI agent library for Python, designed to build agents with tool support, multimodal capabilities, and streaming responses.
 
