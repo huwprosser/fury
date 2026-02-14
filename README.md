@@ -55,6 +55,22 @@ uv sync --all-extras
 
 ## Quick Start
 
+Most basic usage:
+
+```python
+from fury import Agent
+
+agent = Agent(
+    model="your-model-name",  # e.g., "gpt-4o" or a local model
+    system_prompt="You are a helpful assistant.",
+    base_url="http://127.0.0.1:8080/v1",  # or https://openrouter.ai/api/v1, https://api.openai.com/v1
+    api_key="your-api-key",
+)
+
+response = agent.ask("Hello!", history=[])
+print(response)
+```
+
 Here is a simple example of how to create a chat agent:
 
 ```python
@@ -85,6 +101,27 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+```
+
+### Configuration Options
+
+```python
+agent = Agent(
+    model="your-model-name",
+    system_prompt="You are a helpful assistant.",
+    parallel_tool_calls=False,
+    generation_params={
+        "temperature": 0.2,
+        "max_tokens": 512,
+    },
+)
+
+# Disable reasoning stream content (default is False)
+async for event in agent.chat(history, reasoning=False):
+    ...
+
+# Or for single-shot calls
+response = agent.ask("Hello!", history=[], reasoning=False)
 ```
 
 ## Advanced Usage

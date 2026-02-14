@@ -370,6 +370,66 @@ class Agent:
             logger.exception(f"Error in chat: {e}")
             yield ChatStreamEvent(content=str(e))
 
+    async def ask_async(
+        self,
+        user_input: str,
+        history: Optional[List[Dict[str, Any]]] = None,
+        reasoning: bool = False,
+    ) -> str:
+        """
+        Send a single user message and return the assistant response.
+
+        Args:
+            user_input: The user message to send.
+            history: Optional conversation history to append to.
+            reasoning: Whether to include reasoning content in the stream.
+
+        Returns:
+            The assistant response content as a string.
+        """
+        active_history = history if history is not None else []
+        active_history.append({"role": "user", "content": user_input})
+
+        buffer: List[str] = []
+        async for event in self.chat(active_history, reasoning=reasoning):
+            if event.content:
+                buffer.append(event.content)
+
+        response = "".join(buffer)
+        active_history.append({"role": "assistant", "content": response})
+        return response
+
+    def ask(
+        self,
+        user_input: str,
+        history: Optional[List[Dict[str, Any]]] = None,
+        reasoning: bool = False,
+    ) -> str:
+        """
+        Synchronous wrapper for ask_async.
+
+        Raises:
+            RuntimeError: If called from within a running event loop.
+        """
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+
+        if loop and loop.is_running():
+            raise RuntimeError(
+                "Agent.ask() cannot be called from a running event loop. "
+                "Use `await agent.ask_async(...)` instead."
+            )
+
+        return asyncio.run(
+            self.ask_async(
+                user_input=user_input,
+                history=history,
+                reasoning=reasoning,
+            )
+        )
+
     def show_yourself(self) -> None:
         """Print the agent configuration summary to stdout."""
         info = [
