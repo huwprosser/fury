@@ -41,6 +41,21 @@ class Tool:
     output_schema: Dict[str, Any]
 
 
+@dataclass
+class ToolCallEvent:
+    tool_name: str
+    arguments: Optional[Dict[str, Any]] = None
+    result: Optional[Any] = None
+    announcement_phrase: Optional[str] = None
+
+
+@dataclass
+class ChatStreamEvent:
+    content: Optional[str] = None
+    reasoning: Optional[str] = None
+    tool_call: Optional[ToolCallEvent] = None
+
+
 def create_tool(
     id: str,
     description: str,
@@ -49,6 +64,7 @@ def create_tool(
     input_schema: Dict[str, Any],
     output_schema: Dict[str, Any],
 ) -> Tool:
+    """Create a Tool instance from the provided metadata and callbacks."""
     return Tool(
         name=id,
         description=description,
@@ -60,6 +76,19 @@ def create_tool(
 
 
 class Agent:
+    model: str
+    system_prompt: str
+    max_tool_rounds: int
+    stt: Optional[Any]
+    base_url: str
+    history: List[Dict[str, Any]]
+    tools: List[Dict[str, Any]]
+    available_functions: Dict[str, Callable[..., Any]]
+    tool_objects: Dict[str, Tool]
+    generation_params: Dict[str, Any]
+    parallel_tool_calls: bool
+    client: AsyncOpenAI
+
     def __init__(
         self,
         model: str,
@@ -70,7 +99,7 @@ class Agent:
         generation_params: Optional[Dict[str, Any]] = None,
         max_tool_rounds: int = 50,
         parallel_tool_calls: bool = True,
-    ):
+    ) -> None:
         """
         Initialize the Agent.
 
@@ -126,7 +155,10 @@ class Agent:
         self.client = AsyncOpenAI(base_url=base_url, api_key=api_key)
         self.show_yourself()
 
-    def add_image_to_history(self, history: List[Dict[str, Any]], image_path: str):
+    def add_image_to_history(
+        self, history: List[Dict[str, Any]], image_path: str
+    ) -> List[Dict[str, Any]]:
+        """Append a base64-encoded image message to the provided history."""
         with open(image_path, "rb") as image_file:
             base64_image = base64.b64encode(image_file.read()).decode("utf-8")
         # Determine mime type
@@ -144,7 +176,8 @@ class Agent:
 
     def add_voice_message_to_history(
         self, history: List[Dict[str, Any]], base64_audio_bytes: str
-    ):
+    ) -> List[Dict[str, Any]]:
+        """Transcribe base64 audio and append it to the history as user content."""
         if not self.stt:
             self.stt = whisper.load_model("base.en")
 
@@ -159,9 +192,7 @@ class Agent:
         self,
         history: List[Dict[str, Any]],
         reasoning: bool = False,
-    ) -> AsyncGenerator[
-        Tuple[Optional[str], Optional[str], Optional[Dict[str, Any]]], None
-    ]:
+    ) -> AsyncGenerator[ChatStreamEvent, None]:
         """
         Chat with the agent. Streams the response from the agent.
 
@@ -169,7 +200,7 @@ class Agent:
             history: List of messages in the conversation.
 
         Returns:
-            AsyncGenerator of tuples containing the chunk, reasoning, and tool call.
+            AsyncGenerator of ChatStreamEvent entries with content, reasoning, or tool data.
         """
 
         def format_multimodal_content(res):
@@ -262,11 +293,11 @@ class Agent:
 
                     reasoning_content = getattr(delta, "reasoning_content", None)
                     if reasoning_content:
-                        yield None, reasoning_content, None
+                        yield ChatStreamEvent(reasoning=reasoning_content)
                         continue
 
                     if delta.content:
-                        yield delta.content, None, None
+                        yield ChatStreamEvent(content=delta.content)
 
                 if not tool_calls:
                     return
@@ -286,18 +317,20 @@ class Agent:
                         payload, error_msg = tool_error_payload(
                             call_id, fname, f"Error decoding arguments for {fname}: {e}"
                         )
-                        yield error_msg, None, None
+                        yield ChatStreamEvent(content=error_msg)
                         active_history.append(payload)
                         continue
 
                     try:
                         args = self._filter_args(fname, args)
                         announcement = self._build_tool_announcement_phrase(fname, args)
-                        yield None, None, {
-                            "tool_name": fname,
-                            "arguments": args,
-                            "announcement_phrase": announcement,
-                        }
+                        yield ChatStreamEvent(
+                            tool_call=ToolCallEvent(
+                                tool_name=fname,
+                                arguments=args,
+                                announcement_phrase=announcement,
+                            )
+                        )
 
                         func = self.available_functions[fname]
                         result = (
@@ -311,10 +344,14 @@ class Agent:
 
                     if isinstance(result, ToolResult):
                         if result.output_schema:
-                            yield None, f"data_{json.dumps(result.output_schema)}", None
+                            yield ChatStreamEvent(
+                                reasoning=f"data_{json.dumps(result.output_schema)}"
+                            )
                         result = result.content
 
-                    yield None, None, {"tool_name": fname, "result": result}
+                    yield ChatStreamEvent(
+                        tool_call=ToolCallEvent(tool_name=fname, result=result)
+                    )
 
                     tool_content, vision_message = format_multimodal_content(result)
                     active_history.append(
@@ -328,12 +365,13 @@ class Agent:
                     if vision_message:
                         active_history.append(vision_message)
 
-            yield "Max tool rounds reached", None, None
+            yield ChatStreamEvent(content="Max tool rounds reached")
         except Exception as e:
             logger.exception(f"Error in chat: {e}")
-            yield str(e), None, None
+            yield ChatStreamEvent(content=str(e))
 
-    def show_yourself(self):
+    def show_yourself(self) -> None:
+        """Print the agent configuration summary to stdout."""
         info = [
             ("Model", self.model),
             ("Tools", [tool["function"]["name"] for tool in self.tools]),
@@ -354,13 +392,15 @@ class Agent:
     def _build_tool_announcement_phrase(
         self, tool_name: str, arguments: Dict[str, Any]
     ) -> str:
+        """Create a human-readable announcement for a tool call."""
         if tool_name in self.tool_objects:
             phrase = str(self.tool_objects[tool_name].announcement_phrase)
             return f"Using {phrase.replace('[args]', str(arguments))}..."
 
         return f"Using {tool_name}..."
 
-    def _check_server_status(self):
+    def _check_server_status(self) -> None:
+        """Verify the model is available on the configured server."""
         def _model_loaded():
             try:
                 response = requests.get(f"{self.base_url}/models", timeout=1)
@@ -387,11 +427,13 @@ class Agent:
         exit(1)
 
     def _normalize_tool_name(self, name: str) -> str:
+        """Strip provider prefixes from tool names."""
         if name.startswith("functions."):
             return name.split(".", 1)[1]
         return name
 
     def _register_parallel_tool(self) -> None:
+        """Register the built-in parallel tool wrapper."""
         tool_name = "multi_tool_use.parallel"
         if tool_name in self.available_functions:
             return
@@ -454,7 +496,10 @@ class Agent:
 
         return args
 
-    async def _execute_parallel_tool(self, tool_uses: List[Dict[str, Any]]):
+    async def _execute_parallel_tool(
+        self, tool_uses: List[Dict[str, Any]]
+    ) -> List[Dict[str, Any]]:
+        """Execute multiple tool calls concurrently and return their results."""
         async def run_tool(tool_use: Dict[str, Any]) -> Dict[str, Any]:
             recipient_name = tool_use.get("recipient_name")
             if not recipient_name:
