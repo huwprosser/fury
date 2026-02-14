@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="fury.png" alt="Fury Logo" width="192" />
+  <img src="https://raw.githubusercontent.com/huwprosser/fury/a5f785da526e09af78d9522f1b275be421bbb5e8/fury.png" alt="Fury Logo" width="192" />
 </p>
 
 <h1 align="center">Fury</h1>
@@ -23,17 +23,31 @@ A flexible and powerful AI agent library for Python, designed to build agents wi
 
 ## Installation
 
+Install with uv:
+
+```bash
+uv add fury-sdk
+```
+
+Install with pip:
+
+```bash
+pip install fury-sdk
+```
+
 Install directly from github using:
 
 ```bash
 uv add git+https://github.com/huwprosser/fury.git
 ```
 
-Pip equivalents:
+or
 
 ```bash
 pip install git+https://github.com/huwprosser/fury.git
 ```
+
+### Examples
 
 If you also want example dependencies:
 
