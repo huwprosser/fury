@@ -22,10 +22,10 @@ async def main():
         buffer = ""
 
         print()
-        async for chunk, _, _ in agent.chat(history, reasoning=False):
-            if chunk:
-                buffer += chunk
-                print(chunk, end="", flush=True)
+        async for event in agent.chat(history, reasoning=False):
+            if event.content:
+                buffer += event.content
+                print(event.content, end="", flush=True)
 
         history.append({"role": "assistant", "content": buffer})
 

@@ -33,17 +33,18 @@ background_tasks = [
 async def run_job(task: dict):
     print(f"\nRunning task: {task['name']}")
     agent = Agent(
-        model="unsloth/GLM-4.6V-Flash-GGUF:Q8_0",
+        model="unsloth/Qwen3-30B-A3B-GGUF:Q3_K_S",
         system_prompt="You are a helpful assistant. Use the correct tools to answer the user's question.",
         tools=task["tools"],
     )
     buffer = []
-    async for chunk, _, _ in agent.chat(
+    async for event in agent.chat(
         [{"role": "user", "content": task["prompt"]}],
         reasoning=task["reasoning"],
     ):
-        if chunk:
-            buffer.append(chunk)
+        if event.content:
+            buffer.append(event.content)
+
     response = "".join(buffer).strip()
     if response:
         print(f"\n[{task['name']}] {response}")

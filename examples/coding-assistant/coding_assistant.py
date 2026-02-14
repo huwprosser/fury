@@ -763,19 +763,19 @@ async def main():
 
         buffer = []
         last_stream_kind = None
-        async for chunk, reasoning, tool_call_result in agent.chat(history, True):
-            if chunk:
+        async for event in agent.chat(history, True):
+            if event.content:
                 if last_stream_kind == "reasoning":
                     print()
                 last_stream_kind = "chunk"
-                buffer.append(chunk)
-                print(chunk, end="", flush=True)
+                buffer.append(event.content)
+                print(event.content, end="", flush=True)
 
-            if reasoning:
+            if event.reasoning:
                 if last_stream_kind == "chunk":
                     print()
                 last_stream_kind = "reasoning"
-                cprint(reasoning, "grey", end="", flush=True)
+                cprint(event.reasoning, "grey", end="", flush=True)
 
         print()
         history.append({"role": "assistant", "content": "".join(buffer)})

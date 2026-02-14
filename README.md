@@ -10,7 +10,6 @@
   </a>
 </p>
 
-
 A flexible and powerful AI agent library for Python, designed to build agents with tool support, multimodal capabilities, and streaming responses.
 
 ## Features
@@ -78,11 +77,11 @@ async def main():
         user_input = input("> ")
         history.append({"role": "user", "content": user_input})
 
+        async for event in agent.chat(history):
+            if event.content:
+                print(event.content, end="", flush=True)
+
         print()
-        async for chunk, reasoning, tool_call in agent.chat(history):
-            if chunk:
-                print(chunk, end="", flush=True)
-        print("\n")
 
 if __name__ == "__main__":
     asyncio.run(main())
@@ -94,18 +93,16 @@ if __name__ == "__main__":
 
 You can give your agent tools to interact with the world. Tools are defined using the `create_tool` helper.
 
-```python
-from agent_lib import Agent, create_tool
-from pydantic import BaseModel
+Input and output schemas help the model to correctly pass parameters through to the function. Fury will automatically prune any hallucinated parameters not defined in the input schema.
 
-# Define input schema using Pydantic
-class CalculatorInput(BaseModel):
-    a: int
-    b: int
+Learn more in the [OpenAI guide](https://developers.openai.com/api/docs/guides/function-calling/)
+
+```python
+from fury import Agent, create_tool
 
 # Define the function
 def add(a: int, b: int):
-    return a + b
+    return {"result": a + b}
 
 # Create the tool
 add_tool = create_tool(
@@ -113,8 +110,19 @@ add_tool = create_tool(
     description="Add two numbers together",
     execute=add,
     announcement_phrase="Adding numbers...",
-    input_schema=CalculatorInput.model_json_schema(),
-    output_schema={"type": "integer"}
+    input_schema={
+        "type": "object",
+        "properties": {
+            "a": {"type": "integer"},
+            "b": {"type": "integer"},
+        },
+        "required": ["a", "b"],
+    },
+    output_schema={
+        "type": "object",
+        "properties": {"result": {"type": "integer"}},
+        "required": ["result"],
+    },
 )
 
 # Pass to agent
@@ -156,7 +164,7 @@ uv run examples/coding-assistant/coding_assistant.py
 
 # Run Tests
 
-TO run the pytest tests you will first need to install the additional test deps.
+To run the pytest tests you will first need to install the additional test deps.
 `uv sync --extra test`
 
 Then run:
