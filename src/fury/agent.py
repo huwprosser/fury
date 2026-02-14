@@ -16,7 +16,6 @@ from typing import (
     Dict,
     List,
     Optional,
-    Tuple,
     Any,
     Union,
 )
@@ -202,6 +201,9 @@ class Agent:
         Returns:
             AsyncGenerator of ChatStreamEvent entries with content, reasoning, or tool data.
         """
+
+        if not self._validate_history(history):
+            raise ValueError("History is not in the correct format")
 
         def format_multimodal_content(res):
             if isinstance(res, dict) and "image_base64" in res:
@@ -391,6 +393,10 @@ class Agent:
         active_history.append({"role": "user", "content": user_input})
 
         buffer: List[str] = []
+
+        if not self._validate_history(active_history):
+            raise ValueError("History is not in the correct format")
+
         async for event in self.chat(active_history, reasoning=reasoning):
             if event.content:
                 buffer.append(event.content)
@@ -461,6 +467,7 @@ class Agent:
 
     def _check_server_status(self) -> None:
         """Verify the model is available on the configured server."""
+
         def _model_loaded():
             try:
                 response = requests.get(f"{self.base_url}/models", timeout=1)
@@ -560,6 +567,7 @@ class Agent:
         self, tool_uses: List[Dict[str, Any]]
     ) -> List[Dict[str, Any]]:
         """Execute multiple tool calls concurrently and return their results."""
+
         async def run_tool(tool_use: Dict[str, Any]) -> Dict[str, Any]:
             recipient_name = tool_use.get("recipient_name")
             if not recipient_name:
@@ -597,3 +605,13 @@ class Agent:
         if not tasks:
             return []
         return await asyncio.gather(*tasks)
+
+    def _validate_history(self, history: List[Dict[str, Any]]) -> bool:
+        """Validate the history is in the correct format."""
+        for message in history:
+            if message.get("role") not in ["system", "user", "assistant", "tool"]:
+                raise ValueError(f"Invalid role: {message.get('role')}")
+            if message.get("content") is None:
+                raise ValueError("Content is required")
+
+        return True
