@@ -2,8 +2,8 @@ import asyncio
 from types import SimpleNamespace
 from typing import Any, Dict, List
 
-import agent_lib.agent as agent_module  # type: ignore[import-untyped]
-from agent_lib import Agent, create_tool  # type: ignore[import-untyped]
+import fury.agent as agent_module  # type: ignore[import-untyped]
+from fury import Agent, create_tool  # type: ignore[import-untyped]
 
 
 class FakeStream:
@@ -59,8 +59,8 @@ def make_chunk(*, content=None, tool_calls=None, reasoning_content=None):
 
 async def collect_chat_events(agent: Agent, history: List[Dict[str, Any]]):
     events = []
-    async for chunk, reasoning, tool_call in agent.chat(history, reasoning=False):
-        events.append((chunk, reasoning, tool_call))
+    async for event in agent.chat(history, reasoning=False):
+        events.append(event)
     return events
 
 
@@ -80,10 +80,10 @@ def test_basic_chat_streams_text(monkeypatch):
     history = [{"role": "user", "content": "Say hello"}]
     events = asyncio.run(collect_chat_events(agent, history))
 
-    streamed_text = "".join(chunk for chunk, _, _ in events if chunk)
+    streamed_text = "".join(event.content for event in events if event.content)
     assert streamed_text == "Hello world!"
-    assert all(reasoning is None for _, reasoning, _ in events)
-    assert all(tool_call is None for _, _, tool_call in events)
+    assert all(event.reasoning is None for event in events)
+    assert all(event.tool_call is None for event in events)
 
     first_call = FakeAsyncOpenAI.last_client.chat.completions.calls[0]
     assert first_call["messages"][0] == {
@@ -139,13 +139,15 @@ def test_chat_executes_tool_call_and_returns_followup(monkeypatch):
     history = [{"role": "user", "content": "What is 2+3?"}]
     events = asyncio.run(collect_chat_events(agent, history))
 
-    tool_events = [tool for _, _, tool in events if tool]
-    assert tool_events[0]["tool_name"] == "add"
-    assert tool_events[0]["arguments"] == {"a": 2, "b": 3}
-    assert tool_events[1] == {"tool_name": "add", "result": 5}
+    tool_events = [event.tool_call for event in events if event.tool_call]
+    assert tool_events[0].tool_name == "add"
+    assert tool_events[0].arguments == {"a": 2, "b": 3}
+    assert tool_events[0].announcement_phrase == "Using Adding numbers......"
+    assert tool_events[1].tool_name == "add"
+    assert tool_events[1].result == 5
     assert tool_invocations == [{"a": 2, "b": 3}]
 
-    final_text = "".join(chunk for chunk, _, _ in events if chunk)
+    final_text = "".join(event.content for event in events if event.content)
     assert final_text == "The result is 5."
 
     second_call_messages = FakeAsyncOpenAI.last_client.chat.completions.calls[1][
