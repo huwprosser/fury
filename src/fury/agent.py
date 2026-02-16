@@ -10,7 +10,6 @@ import librosa
 import whisper
 from termcolor import cprint
 
-NeuTTSMinimal = None
 from dataclasses import dataclass
 from typing import (
     AsyncGenerator,
@@ -22,6 +21,8 @@ from typing import (
     Union,
 )
 from openai import AsyncOpenAI
+
+from .neutts_minimal import NeuTTSMinimal
 
 logger = logging.getLogger(__name__)
 
@@ -82,7 +83,7 @@ class Agent:
     max_tool_rounds: int
     stt: Optional[Any]
     tts: Optional[Any]
-    tts_class: Optional[Any]
+    tts_provider: Optional[Any]
     base_url: str
     history: List[Dict[str, Any]]
     tools: List[Dict[str, Any]]
@@ -102,6 +103,7 @@ class Agent:
         generation_params: Optional[Dict[str, Any]] = None,
         max_tool_rounds: int = 50,
         parallel_tool_calls: bool = True,
+        tts_provider: Optional[Any] = None,
     ) -> None:
         """
         Initialize the Agent.
@@ -115,13 +117,14 @@ class Agent:
             generation_params: The generation parameters to use.
             max_tool_rounds: The maximum number of tool rounds allowed before giving up.
             parallel_tool_calls: Whether to allow parallel tool calls.
+            tts_provider: Optional custom TTS provider instance.
         """
         self.model = model
         self.system_prompt = system_prompt
         self.max_tool_rounds = max_tool_rounds
         self.stt = None
         self.tts = None
-        self.tts_class = None
+        self.tts_provider = tts_provider
         self.base_url = base_url
         self.history: List[Dict[str, Any]] = []
         self.tools: List[Dict[str, Any]] = []
@@ -197,74 +200,34 @@ class Agent:
         self,
         text: str,
         ref_text: str,
-        *,
-        ref_codes: Optional[Any] = None,
         ref_audio_path: Optional[str] = None,
-        backbone_path: str = "neuphonic/neutts-air-q4-gguf",
-        codec_path: str = "neuphonic/neucodec-onnx-decoder",
-        tts_kwargs: Optional[Dict[str, Any]] = None,
     ) -> Any:
         """
-        Convert text to speech using the optional NeuTTS minimal backend.
+        Generate TTS audio using the default NeuTTS backend.
 
         Args:
             text: Text to synthesize.
-            ref_text: Text that matches the reference audio or codes.
-            ref_codes: Reference speech codes for voice conditioning.
-            ref_audio_path: Path to a reference audio file to encode into ref_codes.
-            backbone_path: Path or repo ID for the backbone model.
-            codec_path: Path or repo ID for the codec model.
-            tts_kwargs: Optional kwargs for NeuTTSMinimal initialization.
-                Defaults to {"backbone_filename": "*.gguf", "verbose": False}.
+            ref_text: Reference text matching the reference audio.
+            ref_audio_path: Path to a reference audio file to encode for voice conditioning.
         """
 
-        if not self.tts_class:
-            cprint(
-                "Loading NeuTTSMinimal. First time initialization may take a while...",
-                "yellow",
-            )
-            global NeuTTSMinimal
-            if NeuTTSMinimal is None:
-                try:
-                    from .neutts_minimal import NeuTTSMinimal as _NeuTTSMinimal
-                except (
-                    Exception
-                ) as exc:  # Optional dependency; keep agent usable without TTS extras.
-                    raise RuntimeError(
-                        "NeuTTSMinimal is not available. Install the 'tts' extras to use speak()."
-                    ) from exc
-                NeuTTSMinimal = _NeuTTSMinimal
-            self.tts_class = NeuTTSMinimal
+        if not ref_audio_path:
+            raise ValueError("Provide ref_audio_path for TTS.")
 
-        if ref_codes is None:
-            cprint(
-                "Encoding reference audio... (pre-generation of codes will reduce latency)",
-                "yellow",
-            )
-            if not ref_audio_path:
-                raise ValueError("Provide ref_codes or ref_audio_path for TTS.")
-            ref_codes = self.tts_class.encode_reference_audio(ref_audio_path)
+        if not ref_text:
+            raise ValueError("Provide ref_text for TTS.")
 
         if self.tts is None:
-            init_kwargs = {
-                "backbone_filename": "*.gguf",
-                "verbose": False,
-            }
-            if tts_kwargs:
-                init_kwargs.update(tts_kwargs)
-            self.tts = self.tts_class(
-                backbone_path=backbone_path,
-                codec_path=codec_path,
-                **init_kwargs,
+            self.tts = NeuTTSMinimal(
+                backbone_path="neuphonic/neutts-air-q4-gguf",
+                codec_path="neuphonic/neucodec-onnx-decoder",
             )
 
-        audio_stream = self.tts.infer_stream(
+        return self.tts.infer_stream(
             text=text,
-            ref_codes=ref_codes,
+            ref_audio_path=ref_audio_path,
             ref_text=ref_text,
         )
-
-        return audio_stream
 
     async def chat(
         self,

@@ -167,6 +167,7 @@ backbone and codec are `neuphonic/neutts-air-q4-gguf` and `neuphonic/neucodec-on
 Make sure your OpenAI-compatible server is running, since the agent still initializes the
 chat client on startup.
 
+
 ```python
 import numpy as np
 import wave

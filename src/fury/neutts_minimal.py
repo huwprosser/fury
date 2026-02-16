@@ -9,19 +9,16 @@ import logging
 import numpy as np
 import torch
 import re
-from typing import Generator, List, Optional, Union
-
+import warnings
 import librosa
+from typing import Generator, List, Optional
 from phonemizer.backend import EspeakBackend
 from phonemizer.backend.espeak.wrapper import EspeakWrapper
-
+from neucodec import NeuCodec, NeuCodecOnnxDecoder
 from llama_cpp import Llama
-import llama_cpp
 from llama_cpp._logger import logger as llama_logger
 
-from neucodec import NeuCodec, NeuCodecOnnxDecoder
-
-llama_cpp.llama_backend_init(False)  # Disables the backend logs
+warnings.filterwarnings("ignore")
 
 
 def _configure_espeak_library():
@@ -109,6 +106,8 @@ class NeuTTSMinimal:
         self.streaming_stride_samples = (
             self.streaming_frames_per_chunk * self.hop_length
         )
+        self._ref_codes: Optional[torch.Tensor] = None
+        self._ref_audio_path: Optional[str] = None
 
         # Load Phonemizer
         print("Loading phonemizer...")
@@ -209,21 +208,25 @@ class NeuTTSMinimal:
     def infer_stream(
         self,
         text: str,
-        ref_codes: Union[np.ndarray, torch.Tensor, List[int]],
+        ref_audio_path: str,
         ref_text: str,
     ) -> Generator[np.ndarray, None, None]:
+
+        if self._ref_codes is None or self._ref_audio_path != ref_audio_path:
+            self._ref_codes = self.encode_reference_audio(ref_audio_path)
+            self._ref_audio_path = ref_audio_path
 
         # Preprocessing
         ref_phones = self._to_phones(ref_text)
         input_phones = self._to_phones(text)
 
         # Handle ref_codes format
-        if isinstance(ref_codes, torch.Tensor):
-            ref_codes_list = ref_codes.flatten().tolist()
-        elif isinstance(ref_codes, np.ndarray):
-            ref_codes_list = ref_codes.flatten().tolist()
+        if isinstance(self._ref_codes, torch.Tensor):
+            ref_codes_list = self._ref_codes.flatten().tolist()
+        elif isinstance(self._ref_codes, np.ndarray):
+            ref_codes_list = self._ref_codes.flatten().tolist()
         else:
-            ref_codes_list = ref_codes
+            ref_codes_list = self._ref_codes
 
         codes_str = "".join([f"<|speech_{idx}|>" for idx in ref_codes_list])
 
