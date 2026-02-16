@@ -892,6 +892,7 @@ test = [
     { name = "pytest" },
 ]
 tts = [
+    { name = "huggingface-hub" },
     { name = "llama-cpp-python" },
     { name = "neucodec" },
     { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
@@ -905,6 +906,7 @@ tts = [
 requires-dist = [
     { name = "apscheduler", specifier = ">=3.11.2" },
     { name = "apscheduler", marker = "extra == 'examples'" },
+    { name = "huggingface-hub", marker = "extra == 'tts'", specifier = ">=1.4.1" },
     { name = "librosa" },
     { name = "llama-cpp-python", marker = "extra == 'tts'" },
     { name = "neucodec", marker = "extra == 'tts'" },

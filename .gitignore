@@ -210,4 +210,4 @@ __marimo__/
 .DS_Store
 
 # Test artifacts
-artifacts/
+examples/output.wav

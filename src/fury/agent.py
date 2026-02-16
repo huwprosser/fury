@@ -10,10 +10,7 @@ import librosa
 import whisper
 from termcolor import cprint
 
-try:
-    from .neutts_minimal import NeuTTSMinimal
-except Exception:  # Optional dependency; keep agent usable without TTS extras.
-    NeuTTSMinimal = None
+NeuTTSMinimal = None
 from dataclasses import dataclass
 from typing import (
     AsyncGenerator,
@@ -124,7 +121,7 @@ class Agent:
         self.max_tool_rounds = max_tool_rounds
         self.stt = None
         self.tts = None
-        self.tts_class = NeuTTSMinimal
+        self.tts_class = None
         self.base_url = base_url
         self.history: List[Dict[str, Any]] = []
         self.tools: List[Dict[str, Any]] = []
@@ -220,12 +217,30 @@ class Agent:
             tts_kwargs: Optional kwargs for NeuTTSMinimal initialization.
                 Defaults to {"backbone_filename": "*.gguf", "verbose": False}.
         """
+
         if not self.tts_class:
-            raise RuntimeError(
-                "NeuTTSMinimal is not available. Install the 'tts' extras to use speak()."
+            cprint(
+                "Loading NeuTTSMinimal. First time initialization may take a while...",
+                "yellow",
             )
+            global NeuTTSMinimal
+            if NeuTTSMinimal is None:
+                try:
+                    from .neutts_minimal import NeuTTSMinimal as _NeuTTSMinimal
+                except (
+                    Exception
+                ) as exc:  # Optional dependency; keep agent usable without TTS extras.
+                    raise RuntimeError(
+                        "NeuTTSMinimal is not available. Install the 'tts' extras to use speak()."
+                    ) from exc
+                NeuTTSMinimal = _NeuTTSMinimal
+            self.tts_class = NeuTTSMinimal
 
         if ref_codes is None:
+            cprint(
+                "Encoding reference audio... (pre-generation of codes will reduce latency)",
+                "yellow",
+            )
             if not ref_audio_path:
                 raise ValueError("Provide ref_codes or ref_audio_path for TTS.")
             ref_codes = self.tts_class.encode_reference_audio(ref_audio_path)

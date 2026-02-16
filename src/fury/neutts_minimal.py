@@ -5,6 +5,7 @@ NeuTTS Minimal inference script.
 import os
 import glob
 import platform
+import logging
 import numpy as np
 import torch
 import re
@@ -15,8 +16,12 @@ from phonemizer.backend import EspeakBackend
 from phonemizer.backend.espeak.wrapper import EspeakWrapper
 
 from llama_cpp import Llama
+import llama_cpp
+from llama_cpp._logger import logger as llama_logger
 
 from neucodec import NeuCodec, NeuCodecOnnxDecoder
+
+llama_cpp.llama_backend_init(False)  # Disables the backend logs
 
 
 def _configure_espeak_library():
@@ -111,6 +116,11 @@ class NeuTTSMinimal:
             language="en-us", preserve_punctuation=True, with_stress=True
         )
 
+        if verbose:
+            llama_logger.setLevel(logging.DEBUG)
+        else:
+            llama_logger.setLevel(logging.CRITICAL + 1)
+
         # Load Backbone (Llama GGUF)
         print(f"Loading backbone from {backbone_path}...")
 
@@ -118,7 +128,7 @@ class NeuTTSMinimal:
         if os.path.isfile(backbone_path):
             self.backbone = Llama(
                 model_path=backbone_path,
-                verbose=verbose,
+                verbose=False,
                 n_gpu_layers=n_gpu_layers,
                 n_ctx=self.max_context,
                 n_batch=n_batch,
@@ -130,7 +140,7 @@ class NeuTTSMinimal:
             self.backbone = Llama.from_pretrained(
                 repo_id=backbone_path,
                 filename=backbone_filename,
-                verbose=verbose,
+                verbose=False,
                 n_gpu_layers=n_gpu_layers,
                 n_ctx=self.max_context,
                 n_batch=n_batch,
@@ -174,7 +184,9 @@ class NeuTTSMinimal:
         wav_tensor = torch.from_numpy(wav).float().unsqueeze(0).unsqueeze(0).to(device)
 
         with torch.no_grad():
-            ref_codes = codec.encode_code(audio_or_path=wav_tensor).squeeze(0).squeeze(0)
+            ref_codes = (
+                codec.encode_code(audio_or_path=wav_tensor).squeeze(0).squeeze(0)
+            )
 
         ref_codes = ref_codes.detach().cpu()
 
