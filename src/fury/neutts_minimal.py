@@ -10,8 +10,9 @@ import numpy as np
 import torch
 import re
 import warnings
-import librosa
 from typing import Generator, List, Optional
+
+from .audio import load_audio
 from phonemizer.backend import EspeakBackend
 from phonemizer.backend.espeak.wrapper import EspeakWrapper
 from neucodec import NeuCodec, NeuCodecOnnxDecoder
@@ -179,7 +180,7 @@ class NeuTTSMinimal:
         codec = NeuCodec.from_pretrained(codec_id)
         codec.eval().to(device)
 
-        wav, _ = librosa.load(ref_audio_path, sr=sample_rate, mono=True)
+        wav, _ = load_audio(ref_audio_path, sr=sample_rate, mono=True)
         wav_tensor = torch.from_numpy(wav).float().unsqueeze(0).unsqueeze(0).to(device)
 
         with torch.no_grad():

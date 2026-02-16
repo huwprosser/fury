@@ -8,7 +8,8 @@ dependencies = [
     "openai",
     "requests",
     "termcolor",
-    "librosa",
+    "numpy",
+    "soundfile",
     "openai-whisper",
     "apscheduler>=3.11.2",
 ]

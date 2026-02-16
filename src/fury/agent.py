@@ -6,9 +6,10 @@ import base64
 import mimetypes
 import requests
 import asyncio
-import librosa
 import whisper
 from termcolor import cprint
+
+from .audio import load_audio
 
 from dataclasses import dataclass
 from typing import (
@@ -189,9 +190,9 @@ class Agent:
         if not self.stt:
             self.stt = whisper.load_model("base.en")
 
-        audio = librosa.load(
-            io.BytesIO(base64.b64decode(base64_audio_bytes)), sr=16000
-        )[0]
+        audio, _ = load_audio(
+            io.BytesIO(base64.b64decode(base64_audio_bytes)), sr=16000, mono=True
+        )
         result = self.stt.transcribe(audio)
         history.append({"role": "user", "content": result["text"]})
         return history
