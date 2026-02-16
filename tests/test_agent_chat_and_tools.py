@@ -1,6 +1,12 @@
 import asyncio
+import base64
+import os
+import wave
 from types import SimpleNamespace
 from typing import Any, Dict, List
+
+import numpy as np
+import pytest
 
 import fury.agent as agent_module  # type: ignore[import-untyped]
 from fury import Agent, create_tool  # type: ignore[import-untyped]
@@ -159,3 +165,71 @@ def test_chat_executes_tool_call_and_returns_followup(monkeypatch):
         and msg.get("content") == "5"
         for msg in second_call_messages
     )
+
+
+def test_add_voice_message_to_history_transcribes(monkeypatch):
+    monkeypatch.setattr(agent_module.Agent, "_check_server_status", lambda self: None)
+    monkeypatch.setattr(agent_module.Agent, "show_yourself", lambda self: None)
+
+    class FakeWhisperModel:
+        def transcribe(self, audio):
+            return {"text": "hello from stt"}
+
+    class FakeWhisperModule:
+        @staticmethod
+        def load_model(name):
+            return FakeWhisperModel()
+
+    class FakeLibrosaModule:
+        @staticmethod
+        def load(buffer, sr=16000):
+            return np.array([0.1, 0.2], dtype=np.float32), sr
+
+    monkeypatch.setattr(agent_module, "whisper", FakeWhisperModule)
+    monkeypatch.setattr(agent_module, "librosa", FakeLibrosaModule)
+
+    agent = Agent(model="test-model", system_prompt="You are test assistant.")
+    history: List[Dict[str, Any]] = []
+    audio_payload = base64.b64encode(b"fake-audio").decode("utf-8")
+
+    agent.add_voice_message_to_history(history, audio_payload)
+
+    assert history[-1] == {"role": "user", "content": "hello from stt"}
+
+
+def test_speak_encodes_reference_audio_and_streams(monkeypatch):
+    monkeypatch.setattr(agent_module.Agent, "_check_server_status", lambda self: None)
+    monkeypatch.setattr(agent_module.Agent, "show_yourself", lambda self: None)
+
+    if agent_module.NeuTTSMinimal is None:
+        pytest.skip("NeuTTSMinimal dependencies not installed")
+
+    output_dir = "artifacts"
+    os.makedirs(output_dir, exist_ok=True)
+
+    ref_audio_path = os.path.join("tests", "ref.wav")
+    assert os.path.exists(ref_audio_path)
+
+    agent = Agent(model="test-model", system_prompt="You are test assistant.")
+
+    chunks = list(
+        agent.speak(
+            text="hellow world.",
+            ref_text="welcome home sir.",
+            ref_audio_path=ref_audio_path,
+        )
+    )
+
+    output_path = os.path.join(output_dir, "output.wav")
+    audio = np.concatenate(chunks)
+    audio_int16 = (audio * 32767).clip(-32768, 32767).astype(np.int16)
+
+    with wave.open(output_path, "wb") as wav_file:
+        wav_file.setnchannels(1)
+        wav_file.setsampwidth(2)
+        wav_file.setframerate(24000)
+        wav_file.writeframes(audio_int16.tobytes())
+
+    assert len(chunks) > 0
+    assert os.path.exists(output_path)
+    assert os.path.getsize(output_path) > 44

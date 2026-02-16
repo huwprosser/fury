@@ -9,6 +9,11 @@ import asyncio
 import librosa
 import whisper
 from termcolor import cprint
+
+try:
+    from .neutts_minimal import NeuTTSMinimal
+except Exception:  # Optional dependency; keep agent usable without TTS extras.
+    NeuTTSMinimal = None
 from dataclasses import dataclass
 from typing import (
     AsyncGenerator,
@@ -79,6 +84,8 @@ class Agent:
     system_prompt: str
     max_tool_rounds: int
     stt: Optional[Any]
+    tts: Optional[Any]
+    tts_class: Optional[Any]
     base_url: str
     history: List[Dict[str, Any]]
     tools: List[Dict[str, Any]]
@@ -116,6 +123,8 @@ class Agent:
         self.system_prompt = system_prompt
         self.max_tool_rounds = max_tool_rounds
         self.stt = None
+        self.tts = None
+        self.tts_class = NeuTTSMinimal
         self.base_url = base_url
         self.history: List[Dict[str, Any]] = []
         self.tools: List[Dict[str, Any]] = []
@@ -186,6 +195,61 @@ class Agent:
         result = self.stt.transcribe(audio)
         history.append({"role": "user", "content": result["text"]})
         return history
+
+    def speak(
+        self,
+        text: str,
+        ref_text: str,
+        *,
+        ref_codes: Optional[Any] = None,
+        ref_audio_path: Optional[str] = None,
+        backbone_path: str = "neuphonic/neutts-air-q4-gguf",
+        codec_path: str = "neuphonic/neucodec-onnx-decoder",
+        tts_kwargs: Optional[Dict[str, Any]] = None,
+    ) -> Any:
+        """
+        Convert text to speech using the optional NeuTTS minimal backend.
+
+        Args:
+            text: Text to synthesize.
+            ref_text: Text that matches the reference audio or codes.
+            ref_codes: Reference speech codes for voice conditioning.
+            ref_audio_path: Path to a reference audio file to encode into ref_codes.
+            backbone_path: Path or repo ID for the backbone model.
+            codec_path: Path or repo ID for the codec model.
+            tts_kwargs: Optional kwargs for NeuTTSMinimal initialization.
+                Defaults to {"backbone_filename": "*.gguf", "verbose": False}.
+        """
+        if not self.tts_class:
+            raise RuntimeError(
+                "NeuTTSMinimal is not available. Install the 'tts' extras to use speak()."
+            )
+
+        if ref_codes is None:
+            if not ref_audio_path:
+                raise ValueError("Provide ref_codes or ref_audio_path for TTS.")
+            ref_codes = self.tts_class.encode_reference_audio(ref_audio_path)
+
+        if self.tts is None:
+            init_kwargs = {
+                "backbone_filename": "*.gguf",
+                "verbose": False,
+            }
+            if tts_kwargs:
+                init_kwargs.update(tts_kwargs)
+            self.tts = self.tts_class(
+                backbone_path=backbone_path,
+                codec_path=codec_path,
+                **init_kwargs,
+            )
+
+        audio_stream = self.tts.infer_stream(
+            text=text,
+            ref_codes=ref_codes,
+            ref_text=ref_text,
+        )
+
+        return audio_stream
 
     async def chat(
         self,
