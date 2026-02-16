@@ -16,7 +16,6 @@ It is a simple example of how to use the Fury agent library to create a coding a
 
 import asyncio
 import base64
-import json
 import mimetypes
 import os
 import tempfile
@@ -30,15 +29,11 @@ from typing import Any, Dict, List, Optional
 from dotenv import load_dotenv
 from pydantic import BaseModel
 
-from fury import Agent, create_tool
+from fury import Agent, HistoryManager, create_tool
 
 MAX_LINES = 2000
 MAX_BYTES = 100 * 1024
 IMAGE_MIME_PREFIXES = {"image/png", "image/jpeg", "image/gif", "image/webp"}
-CONTEXT_WINDOW = 32768
-RESERVE_TOKENS = 8192
-KEEP_RECENT_TOKENS = 8000
-SUMMARY_PREFIX = "Summary of previous conversation:"
 SKILLS_DOC_PATH = "docs/skills.md"
 
 
@@ -62,6 +57,18 @@ class EditInput(BaseModel):
     path: str
     old_text: str
     new_text: str
+
+
+READ_OUTPUT_SCHEMA = {"oneOf": [{"type": "string"}, {"type": "object"}]}
+BASH_OUTPUT_SCHEMA = {"type": "string"}
+WRITE_OUTPUT_SCHEMA = {"type": "string"}
+EDIT_OUTPUT_SCHEMA = {"type": "string"}
+
+
+def get_model_schema(model: type[BaseModel]) -> Dict[str, Any]:
+    if hasattr(model, "model_json_schema"):
+        return model.model_json_schema()
+    return model.schema()
 
 
 @dataclass
@@ -399,249 +406,6 @@ def format_token_count(count: int) -> str:
     return f"{round(count / 1000000)}M"
 
 
-def estimate_tokens_for_message(message: Dict[str, Any]) -> int:
-    role = message.get("role")
-    chars = 0
-
-    if role in {"user", "system"}:
-        content = message.get("content", "")
-        if isinstance(content, list):
-            for block in content:
-                if isinstance(block, dict) and block.get("type") == "text":
-                    chars += len(block.get("text", ""))
-        elif isinstance(content, dict):
-            chars += len(json.dumps(content, ensure_ascii=False))
-        else:
-            chars += len(str(content))
-    elif role == "assistant":
-        content = message.get("content", "")
-        if isinstance(content, list):
-            for block in content:
-                if isinstance(block, dict) and block.get("type") == "text":
-                    chars += len(block.get("text", ""))
-                elif isinstance(block, dict) and block.get("type") == "toolCall":
-                    chars += len(block.get("name", ""))
-                    chars += len(
-                        json.dumps(block.get("arguments", {}), ensure_ascii=False)
-                    )
-        else:
-            chars += len(str(content))
-
-        tool_calls = message.get("tool_calls")
-        if tool_calls:
-            chars += len(json.dumps(tool_calls, ensure_ascii=False))
-    elif role == "tool":
-        content = message.get("content", "")
-        if isinstance(content, (dict, list)):
-            chars += len(json.dumps(content, ensure_ascii=False))
-        else:
-            chars += len(str(content))
-    else:
-        content = message.get("content", "")
-        chars += len(str(content))
-
-    return (chars + 3) // 4
-
-
-def get_context_usage(history: List[Dict[str, Any]]) -> tuple[int, float]:
-    tokens = sum(estimate_tokens_for_message(msg) for msg in history)
-    percent = (tokens / CONTEXT_WINDOW) * 100 if CONTEXT_WINDOW else 0.0
-    return tokens, percent
-
-
-def extract_tool_calls(message: Dict[str, Any]) -> List[Dict[str, Any]]:
-    calls: List[Dict[str, Any]] = []
-    tool_calls = message.get("tool_calls")
-    if isinstance(tool_calls, list):
-        calls.extend([call for call in tool_calls if isinstance(call, dict)])
-
-    content = message.get("content")
-    if isinstance(content, list):
-        for block in content:
-            if isinstance(block, dict) and block.get("type") == "toolCall":
-                calls.append(
-                    {
-                        "name": block.get("name"),
-                        "arguments": block.get("arguments"),
-                    }
-                )
-
-    return calls
-
-
-def parse_tool_arguments(arguments: Any) -> Dict[str, Any]:
-    if isinstance(arguments, dict):
-        return arguments
-    if isinstance(arguments, str):
-        try:
-            return json.loads(arguments)
-        except json.JSONDecodeError:
-            return {}
-    return {}
-
-
-def collect_file_ops(messages: List[Dict[str, Any]]) -> tuple[set[str], set[str]]:
-    read_files: set[str] = set()
-    modified_files: set[str] = set()
-
-    for msg in messages:
-        if msg.get("role") != "assistant":
-            continue
-        for call in extract_tool_calls(msg):
-            name = call.get("name")
-            args = parse_tool_arguments(call.get("arguments"))
-            path = args.get("path")
-            if not path:
-                continue
-            if name == "read":
-                read_files.add(path)
-            elif name in {"edit", "write"}:
-                modified_files.add(path)
-
-    return read_files, modified_files
-
-
-def format_message_for_summary(message: Dict[str, Any]) -> str:
-    role = message.get("role", "unknown")
-    if role == "assistant":
-        tool_calls = extract_tool_calls(message)
-        if tool_calls:
-            return f"{role} tool_calls: {json.dumps(tool_calls, ensure_ascii=False)}"
-
-    content = message.get("content", "")
-    if isinstance(content, (list, dict)):
-        content = json.dumps(content, ensure_ascii=False)
-
-    if role == "tool":
-        return f"tool result: {content}"
-
-    return f"{role}: {content}"
-
-
-def should_compact(context_tokens: int) -> bool:
-    return context_tokens > CONTEXT_WINDOW - RESERVE_TOKENS
-
-
-def find_cut_index(messages: List[Dict[str, Any]]) -> int:
-    accumulated = 0
-    tentative_index = 0
-
-    for i in range(len(messages) - 1, -1, -1):
-        accumulated += estimate_tokens_for_message(messages[i])
-        if accumulated >= KEEP_RECENT_TOKENS:
-            tentative_index = i
-            break
-    else:
-        return 0
-
-    valid_indices = []
-    for idx, msg in enumerate(messages):
-        role = msg.get("role")
-        if role in {"user", "assistant", "system"}:
-            valid_indices.append(idx)
-
-    candidates = [idx for idx in valid_indices if idx <= tentative_index]
-    if not candidates:
-        return 0
-    return max(candidates)
-
-
-async def compact_history(
-    agent: Agent, history: List[Dict[str, Any]]
-) -> List[Dict[str, Any]]:
-    if not history:
-        return history
-
-    existing_summary = None
-    working_history = history
-
-    if (
-        history
-        and history[0].get("role") == "system"
-        and isinstance(history[0].get("content"), str)
-        and history[0]["content"].startswith(SUMMARY_PREFIX)
-    ):
-        existing_summary = history[0]["content"][len(SUMMARY_PREFIX) :].strip()
-        working_history = history[1:]
-
-    context_tokens = sum(estimate_tokens_for_message(msg) for msg in working_history)
-    if not should_compact(context_tokens):
-        return history
-
-    cprint("\nCompacting history...\n", "grey")
-
-    cut_index = find_cut_index(working_history)
-    if cut_index <= 0:
-        return history
-
-    to_summarize = working_history[:cut_index]
-    tail = working_history[cut_index:]
-
-    lines = []
-    if existing_summary:
-        lines.append("Existing summary:")
-        lines.append(existing_summary)
-
-    lines.append("Conversation to summarize:")
-    for msg in to_summarize:
-        lines.append(format_message_for_summary(msg))
-
-    read_files, modified_files = collect_file_ops(to_summarize)
-    if read_files or modified_files:
-        lines.append("")
-        lines.append("Known file operations (from tool calls in this segment):")
-        if read_files:
-            lines.append(f"Read files: {', '.join(sorted(read_files))}")
-        if modified_files:
-            lines.append(f"Modified files: {', '.join(sorted(modified_files))}")
-
-    summary_prompt = "\n".join(lines).strip()
-    if not summary_prompt:
-        return history
-
-    completion = await agent.client.chat.completions.create(
-        model=agent.model,
-        messages=[
-            {
-                "role": "system",
-                "content": (
-                    "Summarize the conversation for future context using this format:\n"
-                    "## Goal\n"
-                    "[What the user is trying to accomplish]\n\n"
-                    "## Constraints & Preferences\n"
-                    "- [Requirements mentioned by user]\n\n"
-                    "## Progress\n"
-                    "### Done\n"
-                    "- [x] [Completed tasks]\n\n"
-                    "### In Progress\n"
-                    "- [ ] [Current work]\n\n"
-                    "### Blocked\n"
-                    "- [Issues, if any]\n\n"
-                    "## Key Decisions\n"
-                    "- **[Decision]**: [Rationale]\n\n"
-                    "## Next Steps\n"
-                    "1. [What should happen next]\n\n"
-                    "## Critical Context\n"
-                    "- [Data needed to continue]\n\n"
-                    "<read-files>\n"
-                    "path/to/file1\n"
-                    "</read-files>\n\n"
-                    "<modified-files>\n"
-                    "path/to/file2\n"
-                    "</modified-files>\n\n"
-                    "Be concise but include key decisions, filenames, commands, and TODOs."
-                ),
-            },
-            {"role": "user", "content": summary_prompt},
-        ],
-        extra_body={"chat_template_kwargs": {"enable_thinking": False}},
-    )
-    summary_text = completion.choices[0].message.content or "(summary unavailable)"
-    summary_message = f"{SUMMARY_PREFIX}\n{summary_text.strip()}"
-
-    return [{"role": "system", "content": summary_message}] + tail
-
-
 def load_context_files() -> List[tuple[str, str]]:
     base_dir = os.path.dirname(os.path.abspath(__file__))
     candidates = ["SOUL.md", "MEMORY.md"]
@@ -713,57 +477,57 @@ MEMORY.md: Access long-term facts, user preferences, and historical context from
 
 async def main():
     load_dotenv()
-    api_key = os.getenv("OPENROUTER_KEY", "")
 
     agent = Agent(
-        model="qwen/qwen3-coder-next",
+        model="unsloth/GLM-4.6V-Flash-GGUF:Q8_0",
         system_prompt=build_prompt(),
-        base_url="https://openrouter.ai/api/v1",
-        api_key=api_key,
-        temperature=0.7,
         tools=[
             create_tool(
                 "read",
                 "Read file contents (text or image). Supports offset/limit for text files.",
                 read_tool,
                 "Reading [path]...",
-                input_schema=ReadInput,
+                get_model_schema(ReadInput),
+                READ_OUTPUT_SCHEMA,
             ),
             create_tool(
                 "bash",
                 "Execute a bash command in the current working directory.",
                 bash_tool,
                 "Running command...",
-                input_schema=BashInput,
+                get_model_schema(BashInput),
+                BASH_OUTPUT_SCHEMA,
             ),
             create_tool(
                 "write",
                 "Write content to a file, creating parent directories if needed.",
                 write_tool,
                 "Writing to [path]...",
-                input_schema=WriteInput,
+                get_model_schema(WriteInput),
+                WRITE_OUTPUT_SCHEMA,
             ),
             create_tool(
                 "edit",
                 "Replace exact text in a file with new text.",
                 edit_tool,
                 "Editing [path]...",
-                input_schema=EditInput,
+                get_model_schema(EditInput),
+                EDIT_OUTPUT_SCHEMA,
             ),
         ],
     )
-    agent.show_yourself()
 
-    history = []
+    history_manager = HistoryManager(agent=agent)
+
     while True:
         user_input = input("> ").strip()
         if not user_input:
             continue
-        history.append({"role": "user", "content": user_input})
+        await history_manager.add({"role": "user", "content": user_input})
 
         buffer = []
         last_stream_kind = None
-        async for event in agent.chat(history, True):
+        async for event in agent.chat(history_manager.history, True):
             if event.content:
                 if last_stream_kind == "reasoning":
                     print()
@@ -778,12 +542,11 @@ async def main():
                 cprint(event.reasoning, "grey", end="", flush=True)
 
         print()
-        history.append({"role": "assistant", "content": "".join(buffer)})
-        history = await compact_history(agent, history)
+        await history_manager.add({"role": "assistant", "content": "".join(buffer)})
 
-        context_tokens, context_percent = get_context_usage(history)
+        context_tokens, context_percent = history_manager.get_context_usage()
         cprint(
-            f"Context: {format_token_count(context_tokens)}/{format_token_count(CONTEXT_WINDOW)} "
+            f"Context: {format_token_count(context_tokens)}/{format_token_count(history_manager.context_window)} "
             f"({context_percent:.1f}%)",
             "blue",
         )

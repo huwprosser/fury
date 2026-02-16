@@ -20,11 +20,11 @@ A flexible and powerful AI agent library for Python, designed to build agents wi
 - **Multimodal Capabilities**: Support for image and voice inputs (using Whisper for STT).
 - **Optional Text-to-Speech (TTS)**: Generate audio with NeuTTS via `Agent.speak()`.
 - **Streaming Responses**: Real-time streaming of agent responses and reasoning.
+- **History Manager**: Optional history manager with auto-compaction for long conversations.
 - **OpenAI Compatible**: Built on top of `AsyncOpenAI`, making it compatible with OpenAI models and local inference servers (like vLLM, Ollama, etc.).
 
 ## Roadmap
-- [ ] History manager with auto-compaction support.
-- [ ] TTS support.
+
 - [ ] E2E voice agent example.
 
 ## Installation
@@ -140,6 +140,38 @@ if __name__ == "__main__":
     asyncio.run(main())
 ```
 
+### History Manager (Auto-Compaction)
+
+Use `HistoryManager` to append `{role, content}` messages and automatically compact when the context window gets tight.
+
+```python
+import asyncio
+from fury import Agent, HistoryManager
+
+agent = Agent(
+    model="your-model-name",
+    system_prompt="You are a helpful assistant.",
+)
+
+history_manager = HistoryManager(
+    agent=agent,
+    auto_compact=True,
+    context_window=32768,
+    reserve_tokens=8192,
+    keep_recent_tokens=8000,
+)
+
+async def main():
+    await history_manager.add({"role": "user", "content": "Hello"})
+    async for event in agent.chat(history_manager.history, reasoning=False):
+        ...
+    await history_manager.add({"role": "assistant", "content": "Hi!"})
+
+asyncio.run(main())
+```
+
+For a runnable example, see `examples/history_manager.py`.
+
 ### Configuration Options
 
 ```python
@@ -171,7 +203,6 @@ Use `Agent.speak()` with a reference audio clip and matching text. The default
 backbone and codec are `neuphonic/neutts-air-q4-gguf` and `neuphonic/neucodec-onnx-decoder`.
 Make sure your OpenAI-compatible server is running, since the agent still initializes the
 chat client on startup.
-
 
 ```python
 import numpy as np
@@ -250,7 +281,7 @@ Check out `examples/coding-assistant/coding_assistant.py` for a full-featured ex
 - File system operations (`read`, `write`, `edit`, `bash`).
 - **Skills System**: Loading specialized capabilities from `SKILL.md` files.
 - **Memory System**: Using `MEMORY.md` and `SOUL.md` for context.
-- **History Compaction**: Summarizing long conversations to save context window.
+- **History Manager**: Uses `HistoryManager` to summarize long conversations and save context window.
 
 ## Running Examples
 
@@ -260,6 +291,12 @@ To run the provided examples, ensure you have the package installed.
 
 ```bash
 uv run examples/chat.py
+```
+
+**History Manager (Auto-Compaction):**
+
+```bash
+uv run examples/history_manager.py
 ```
 
 **Coding Assistant (Based on Pi.dev):**
@@ -280,6 +317,7 @@ uv run examples/tts.py --text "Hello" --ref-audio ./samples/ref.wav --ref-text "
     - `agent.py`: Main `Agent` class and logic.
 - `examples/`: Usage examples.
     - `chat.py`: Basic chat loop.
+    - `history_manager.py`: Chat loop with auto-compacting history.
     - `coding-assistant/`: Advanced agent with file ops and memory.
 
 # Run Tests

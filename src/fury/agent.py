@@ -9,7 +9,7 @@ import asyncio
 import whisper
 from termcolor import cprint
 
-from .audio import load_audio
+from .utils.audio import load_audio
 
 from dataclasses import dataclass
 from typing import (
