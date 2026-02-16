@@ -21,6 +21,11 @@ A flexible and powerful AI agent library for Python, designed to build agents wi
 - **Streaming Responses**: Real-time streaming of agent responses and reasoning.
 - **OpenAI Compatible**: Built on top of `AsyncOpenAI`, making it compatible with OpenAI models and local inference servers (like vLLM, Ollama, etc.).
 
+## Roadmap
+- [ ] History manager with auto-compaction support.
+- [ ] TTS support.
+- [ ] E2E voice agent example.
+
 ## Installation
 
 Install with uv:
