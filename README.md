@@ -20,7 +20,7 @@ A flexible and powerful AI agent library for Python, designed to build agents wi
 - **Text-to-Speech (TTS)**: Generate audio with NeuTTS via `Agent.speak()`.
 - **Streaming Responses**: Real-time streaming of agent responses and reasoning.
 - **History Manager**: Optional history manager with auto-compaction for long conversations.
-- **OpenAI-Standard API Compatible**: Built on top of `AsyncOpenAI`, making it compatible with all OpenAI-API comaptible providers. (like Llama.cpp, SGLang, OpenRouter, vLLM, Ollama, etc.).
+- **OpenAI-Standard API Compatible**: Built on top of `AsyncOpenAI`, making it compatible with all OpenAI-API compatible providers. (like Llama.cpp, SGLang, OpenRouter, vLLM, Ollama, etc.).
 
 ## Roadmap
 
