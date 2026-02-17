@@ -1,6 +1,6 @@
 import asyncio
 
-from fury import HistoryManager
+from historymanager import HistoryManager, StaticHistoryManager
 
 
 class FakeCompletion:
@@ -56,3 +56,34 @@ def test_history_manager_auto_compaction():
     assert history[-1]["content"].endswith("5")
     assert client.chat.completions.last_request is not None
     assert len(history) < 12
+
+
+def test_static_history_manager_fits_initial_history():
+    manager = StaticHistoryManager(
+        target_context_length=10,
+        history=[
+            {"role": "user", "content": "a" * 16},  # ~4 tokens
+            {"role": "assistant", "content": "b" * 16},  # ~4 tokens
+            {"role": "user", "content": "c" * 16},  # ~4 tokens
+        ],
+    )
+
+    assert len(manager.history) == 2
+    assert manager.history[0]["content"] == "b" * 16
+    assert manager.history[1]["content"] == "c" * 16
+
+
+def test_static_history_manager_add_drops_older_messages():
+    manager = StaticHistoryManager(
+        target_context_length=8,
+        history=[
+            {"role": "user", "content": "a" * 16},
+            {"role": "assistant", "content": "b" * 16},
+        ],
+    )
+
+    asyncio.run(manager.add({"role": "user", "content": "c" * 16}))
+
+    assert len(manager.history) == 2
+    assert manager.history[0]["content"] == "b" * 16
+    assert manager.history[1]["content"] == "c" * 16

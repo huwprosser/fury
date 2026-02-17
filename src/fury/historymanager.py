@@ -307,3 +307,61 @@ class HistoryManager:
         summary_message = f"{self.summary_prefix}\n{summary_text.strip()}"
 
         return [{"role": "system", "content": summary_message}] + tail
+
+
+class StaticHistoryManager(HistoryManager):
+    """Manage a fixed-size context window without summary compaction."""
+
+    def __init__(
+        self,
+        *,
+        target_context_length: int,
+        history: Optional[List[Dict[str, Any]]] = None,
+    ) -> None:
+        if target_context_length <= 0:
+            raise ValueError("target_context_length must be greater than zero")
+
+        super().__init__(
+            history=history,
+            auto_compact=False,
+            context_window=target_context_length,
+            reserve_tokens=0,
+            keep_recent_tokens=target_context_length,
+        )
+        self.target_context_length = target_context_length
+        self.history = self._fit_to_target(self.history)
+
+    async def add(self, message: Dict[str, Any]) -> List[Dict[str, Any]]:
+        self._validate_message(message)
+        self.history.append(message)
+        self.history = self._fit_to_target(self.history)
+        return self.history
+
+    async def extend(self, messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        for message in messages:
+            self._validate_message(message)
+        self.history.extend(messages)
+        self.history = self._fit_to_target(self.history)
+        return self.history
+
+    def add_nowait(self, message: Dict[str, Any]) -> List[Dict[str, Any]]:
+        self._validate_message(message)
+        self.history.append(message)
+        self.history = self._fit_to_target(self.history)
+        return self.history
+
+    def _fit_to_target(self, messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        fitted: List[Dict[str, Any]] = []
+        total_tokens = 0
+
+        for message in reversed(messages):
+            message_tokens = self._estimate_tokens_for_message(message)
+            if fitted and total_tokens + message_tokens > self.target_context_length:
+                break
+            if not fitted and message_tokens > self.target_context_length:
+                fitted = [message]
+                break
+            fitted.append(message)
+            total_tokens += message_tokens
+
+        return list(reversed(fitted))
