@@ -249,6 +249,12 @@ uv run examples/coding-assistant/coding_assistant.py
 uv run examples/tts.py
 ```
 
+**Voice Chat (STT + TTS):**
+
+```bash
+uv run examples/voice_chat.py
+```
+
 ## Project Structure
 
 - `src/agent_lib/`: Core library code.
@@ -256,6 +262,8 @@ uv run examples/tts.py
 - `examples/`: Usage examples.
     - `chat.py`: Basic chat loop.
     - `history_manager.py`: Chat loop with auto-compacting history.
+    - `tts.py`: NeuTTS example.
+    - `voice_chat.py`: Voice chat with Whisper + NeuTTS.
     - `coding-assistant/`: Advanced agent with file ops and memory.
 
 # Run Tests

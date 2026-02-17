@@ -84,7 +84,6 @@ class Agent:
     max_tool_rounds: int
     stt: Optional[Any]
     tts: Optional[Any]
-    tts_provider: Optional[Any]
     base_url: str
     history: List[Dict[str, Any]]
     tools: List[Dict[str, Any]]
@@ -104,7 +103,6 @@ class Agent:
         generation_params: Optional[Dict[str, Any]] = None,
         max_tool_rounds: int = 50,
         parallel_tool_calls: bool = True,
-        tts_provider: Optional[Any] = None,
     ) -> None:
         """
         Initialize the Agent.
@@ -118,14 +116,12 @@ class Agent:
             generation_params: The generation parameters to use.
             max_tool_rounds: The maximum number of tool rounds allowed before giving up.
             parallel_tool_calls: Whether to allow parallel tool calls.
-            tts_provider: Optional custom TTS provider instance.
         """
         self.model = model
         self.system_prompt = system_prompt
         self.max_tool_rounds = max_tool_rounds
         self.stt = None
         self.tts = None
-        self.tts_provider = tts_provider
         self.base_url = base_url
         self.history: List[Dict[str, Any]] = []
         self.tools: List[Dict[str, Any]] = []
@@ -194,6 +190,7 @@ class Agent:
             io.BytesIO(base64.b64decode(base64_audio_bytes)), sr=16000, mono=True
         )
         result = self.stt.transcribe(audio)
+        print(result["text"])
         history.append({"role": "user", "content": result["text"]})
         return history
 
@@ -202,6 +199,8 @@ class Agent:
         text: str,
         ref_text: str,
         ref_audio_path: Optional[str] = None,
+        backbone_path: str = "neuphonic/neutts-nano-q4-gguf",
+        codec_path: str = "neuphonic/neucodec-onnx-decoder",
     ) -> Any:
         """
         Generate TTS audio using the default NeuTTS backend.
@@ -220,8 +219,8 @@ class Agent:
 
         if self.tts is None:
             self.tts = NeuTTSMinimal(
-                backbone_path="neuphonic/neutts-air-q4-gguf",
-                codec_path="neuphonic/neucodec-onnx-decoder",
+                backbone_path=backbone_path,
+                codec_path=codec_path,
             )
 
         return self.tts.infer_stream(
