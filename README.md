@@ -25,7 +25,7 @@ A flexible and powerful AI agent library for Python, designed to build agents wi
 
 ## Roadmap
 
-- [ ] E2E voice agent example.
+- Message regeneration.
 
 ## Installation
 
