@@ -24,7 +24,7 @@ def main() -> None:
         system_prompt="You are a helpful assistant.",
     )
     audio_chunks = agent.speak(
-        text="Hello from Fury!",
+        text="Welcome to Fury. The last Agent SDK you'll ever need.",
         ref_text="Welcome home sir.",
         ref_audio_path="resources/ref.wav",
     )
