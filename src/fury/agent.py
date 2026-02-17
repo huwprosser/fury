@@ -8,9 +8,7 @@ import requests
 import asyncio
 import whisper
 from termcolor import cprint
-
 from .utils.audio import load_audio
-
 from dataclasses import dataclass
 from typing import (
     AsyncGenerator,
@@ -22,7 +20,6 @@ from typing import (
     Union,
 )
 from openai import AsyncOpenAI
-
 from .neutts_minimal import NeuTTSMinimal
 
 logger = logging.getLogger(__name__)
@@ -485,7 +482,7 @@ class Agent:
             ("Tools", [tool["function"]["name"] for tool in self.tools]),
             (
                 "System prompt",
-                (self.system_prompt[:10000] + "...") if self.system_prompt else None,
+                (self.system_prompt[:100] + "...") if self.system_prompt else None,
             ),
         ]
 
