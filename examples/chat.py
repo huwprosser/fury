@@ -1,4 +1,5 @@
 import asyncio
+
 from fury import Agent, HistoryManager
 
 
@@ -7,27 +8,33 @@ agent = Agent(
     system_prompt="You are a helpful assistant.",
 )
 
-history_manager = HistoryManager(agent=agent)
+history_manager = HistoryManager(
+    agent=agent,
+    auto_compact=True,
+    context_window=32768,
+    reserve_tokens=8192,
+    keep_recent_tokens=8000,
+)
 
 
-async def main():
+async def main() -> None:
     while True:
+        user_input = input("> ").strip()
+        if not user_input:
+            continue
 
-        # Add the user's input to the history.
-        await history_manager.add({"role": "user", "content": input("> ")})
-
-        # history = agent.add_image_to_history(history, "image.jpg") Optionally add a image to the last message of the history.
-        # history = agent.add_voice_message_to_history(history, base64_audio_bytes) Optionally add a voice message to the last message of the history.
+        await history_manager.add({"role": "user", "content": user_input})
 
         buffer = ""
-
         print()
-        async for event in agent.chat(history_manager.history, reasoning=False):
+        async for event in agent.chat(history_manager.history):
             if event.content:
                 buffer += event.content
                 print(event.content, end="", flush=True)
 
         await history_manager.add({"role": "assistant", "content": buffer})
+        print()
 
 
-asyncio.run(main())
+if __name__ == "__main__":
+    asyncio.run(main())

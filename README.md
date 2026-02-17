@@ -41,18 +41,6 @@ Install with pip:
 pip install fury-sdk
 ```
 
-Install directly from github using:
-
-```bash
-uv add git+https://github.com/huwprosser/fury.git
-```
-
-or
-
-```bash
-pip install git+https://github.com/huwprosser/fury.git
-```
-
 ### Examples
 
 If you also want example dependencies:
@@ -61,24 +49,12 @@ If you also want example dependencies:
 uv add "git+https://github.com/huwprosser/fury.git[examples]"
 ```
 
-Pip equivalent for examples:
-
-```bash
-pip install "git+https://github.com/huwprosser/fury.git[examples]"
-```
-
 ### TTS Extras
 
 Install the optional text-to-speech dependencies:
 
 ```bash
 uv add "fury-sdk[tts]"
-```
-
-Pip equivalent:
-
-```bash
-pip install "fury-sdk[tts]"
 ```
 
 > Note: `phonemizer` requires the `espeak` system library. On macOS run `brew install espeak`,
@@ -108,69 +84,43 @@ response = agent.ask("Hello!", history=[])
 print(response)
 ```
 
-Here is a simple example of how to create a chat agent:
+### Real Example
 
-```python
-import asyncio
-from fury import Agent
-
-async def main():
-    # Initialize the agent
-    agent = Agent(
-        model="your-model-name", # e.g., "gpt-4o" or a local model
-        system_prompt="You are a helpful assistant.",
-        base_url="http://127.0.0.1:8080/v1", # or https://openrouter.ai/api/v1, https://api.openai.com/v1
-        api_key="your-api-key"
-    )
-
-    history = []
-
-    # Simple chat loop
-    while True:
-        user_input = input("> ")
-        history.append({"role": "user", "content": user_input})
-
-        async for event in agent.chat(history):
-            if event.content:
-                print(event.content, end="", flush=True)
-
-        print()
-
-if __name__ == "__main__":
-    asyncio.run(main())
-```
-
-### History Manager (Auto-Compaction)
-
-Use `HistoryManager` to append `{role, content}` messages and automatically compact when the context window gets tight.
+Below is a basic chat loop with automatic history-compaction. This allows the bot to keep talking without loosing key facts beyond the context window. It happens automatically and can be configured to suit your models needs.
 
 ```python
 import asyncio
 from fury import Agent, HistoryManager
 
+
 agent = Agent(
-    model="your-model-name",
+    model="unsloth/GLM-4.6V-Flash-GGUF:Q8_0",
     system_prompt="You are a helpful assistant.",
 )
 
-history_manager = HistoryManager(
-    agent=agent,
-    auto_compact=True,
-    context_window=32768,
-    reserve_tokens=8192,
-    keep_recent_tokens=8000,
-)
+history_manager = HistoryManager(agent=agent)
 
-async def main():
-    await history_manager.add({"role": "user", "content": "Hello"})
-    async for event in agent.chat(history_manager.history, reasoning=False):
-        ...
-    await history_manager.add({"role": "assistant", "content": "Hi!"})
+async def main() -> None:
+    while True:
+        user_input = input("> ")
 
-asyncio.run(main())
+        await history_manager.add({"role": "user", "content": user_input})
+
+        buffer = ""
+
+        async for event in agent.chat(history_manager.history):
+            if event.content:
+                buffer += event.content
+                print(event.content, end="", flush=True)
+
+        await history_manager.add({"role": "assistant", "content": buffer})
+        print()
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
+
 ```
-
-For a runnable example, see `examples/history_manager.py`.
 
 ### Configuration Options
 
@@ -189,8 +139,6 @@ agent = Agent(
 async for event in agent.chat(history, reasoning=False):
     ...
 
-# Or for single-shot calls
-response = agent.ask("Hello!", history=[], reasoning=False)
 ```
 
 ## Advanced Usage
@@ -201,8 +149,6 @@ NeuTTS-Air is one of the easiest Autoregressive TTS models to work with right no
 
 Use `Agent.speak()` with a reference audio clip and matching text. The default
 backbone and codec are `neuphonic/neutts-air-q4-gguf` and `neuphonic/neucodec-onnx-decoder`.
-Make sure your OpenAI-compatible server is running, since the agent still initializes the
-chat client on startup.
 
 ```python
 import numpy as np
@@ -216,15 +162,13 @@ agent = Agent(
     api_key="your-api-key",
 )
 
-chunks = list(
-    agent.speak(
-        text="Hello from Fury!",
-        ref_text="Hello from Fury!",
-        ref_audio_path="./samples/ref.wav",
-    )
+chunks = agent.speak(
+    text="Hello from Fury!",
+    ref_text="Welcome home sir.",
+    ref_audio_path="./examples/resources/ref.wav",
 )
 
-audio = np.concatenate(chunks)
+audio = np.concatenate(list(chunks))
 with wave.open("output.wav", "wb") as wav_file:
     wav_file.setnchannels(1)
     wav_file.setsampwidth(2)
@@ -293,12 +237,6 @@ To run the provided examples, ensure you have the package installed.
 uv run examples/chat.py
 ```
 
-**History Manager (Auto-Compaction):**
-
-```bash
-uv run examples/history_manager.py
-```
-
 **Coding Assistant (Based on Pi.dev):**
 
 ```bash
@@ -308,7 +246,7 @@ uv run examples/coding-assistant/coding_assistant.py
 **Text-to-Speech (NeuTTS):**
 
 ```bash
-uv run examples/tts.py --text "Hello" --ref-audio ./samples/ref.wav --ref-text "Hello"
+uv run examples/tts.py
 ```
 
 ## Project Structure
