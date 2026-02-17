@@ -491,11 +491,7 @@ class Agent:
 
         for label, value in info:
             cprint(f"{label}: ", "yellow", end="")
-            if label == "Thinking":
-                val, color = value
-                cprint(val, color)
-            else:
-                print(value)
+            print(value)
 
     def _build_tool_announcement_phrase(
         self, tool_name: str, arguments: Dict[str, Any]

@@ -27,7 +27,15 @@ def _configure_espeak_library():
     if platform.system() != "Darwin":
         return  # Only needed on macOS
 
-    # Common Homebrew installation paths
+    def _try_set(path: str) -> bool:
+        if not os.path.exists(path):
+            return False
+        try:
+            EspeakWrapper.set_library(path)
+        except Exception:
+            return False
+        return True
+
     search_paths = [
         "/opt/homebrew/Cellar/espeak/*/lib/libespeak.*.dylib",  # Apple Silicon
         "/usr/local/Cellar/espeak/*/lib/libespeak.*.dylib",  # Intel
@@ -35,20 +43,14 @@ def _configure_espeak_library():
         "/opt/homebrew/lib/libespeak.*.dylib",  # Another common location
     ]
 
-    # Explicit check for the path seen in original code if generic search fails
     specific_path = "/opt/homebrew/bin/espeak/1.48.04_1/lib/libespeak.1.1.48.dylib"
-    if os.path.exists(specific_path):
-        EspeakWrapper.set_library(specific_path)
+    if _try_set(specific_path):
         return
 
     for pattern in search_paths:
         matches = glob.glob(pattern)
-        if matches:
-            try:
-                EspeakWrapper.set_library(matches[0])
-                return
-            except Exception:
-                pass
+        if matches and _try_set(matches[0]):
+            return
 
 
 _configure_espeak_library()
@@ -96,7 +98,6 @@ class NeuTTSMinimal:
         verbose: bool = False,
         backbone_filename: str = "*.gguf",
     ):
-        # Consts
         self.sample_rate = 24_000
         self.max_context = n_ctx
         self.hop_length = 480
@@ -110,62 +111,61 @@ class NeuTTSMinimal:
         self._ref_codes: Optional[torch.Tensor] = None
         self._ref_audio_path: Optional[str] = None
 
-        # Load Phonemizer
         print("Loading phonemizer...")
         self.phonemizer = EspeakBackend(
             language="en-us", preserve_punctuation=True, with_stress=True
         )
 
-        if verbose:
-            llama_logger.setLevel(logging.DEBUG)
-        else:
-            llama_logger.setLevel(logging.CRITICAL + 1)
+        llama_logger.setLevel(logging.DEBUG if verbose else logging.CRITICAL + 1)
 
-        # Load Backbone (Llama GGUF)
         print(f"Loading backbone from {backbone_path}...")
+        self.backbone = self._load_backbone(
+            backbone_path=backbone_path,
+            backbone_filename=backbone_filename,
+            n_gpu_layers=n_gpu_layers,
+            n_batch=n_batch,
+        )
 
-        # Check if backbone_path is a local file path
-        if os.path.isfile(backbone_path):
-            self.backbone = Llama(
-                model_path=backbone_path,
-                verbose=False,
-                n_gpu_layers=n_gpu_layers,
-                n_ctx=self.max_context,
-                n_batch=n_batch,
-                mlock=True,
-                flash_attn=True if n_gpu_layers == -1 else False,
-            )
-        else:
-            # Fallback to Hugging Face repository
-            self.backbone = Llama.from_pretrained(
-                repo_id=backbone_path,
-                filename=backbone_filename,
-                verbose=False,
-                n_gpu_layers=n_gpu_layers,
-                n_ctx=self.max_context,
-                n_batch=n_batch,
-                mlock=True,
-                flash_attn=True if n_gpu_layers == -1 else False,
-            )
-
-        # Load Codec (ONNX)
         print(f"Loading codec from {codec_path}...")
-        # If it's a repo ID, use from_pretrained, else local path
+        self.codec = self._load_codec(codec_path)
+
+    def _load_backbone(
+        self,
+        *,
+        backbone_path: str,
+        backbone_filename: str,
+        n_gpu_layers: int,
+        n_batch: int,
+    ) -> Llama:
+        common_kwargs = {
+            "verbose": False,
+            "n_gpu_layers": n_gpu_layers,
+            "n_ctx": self.max_context,
+            "n_batch": n_batch,
+            "mlock": True,
+            "flash_attn": n_gpu_layers == -1,
+        }
+
+        if os.path.isfile(backbone_path):
+            return Llama(model_path=backbone_path, **common_kwargs)
+
+        return Llama.from_pretrained(
+            repo_id=backbone_path,
+            filename=backbone_filename,
+            **common_kwargs,
+        )
+
+    @staticmethod
+    def _load_codec(codec_path: str) -> NeuCodecOnnxDecoder:
         if os.path.isfile(codec_path):
-            self.codec = NeuCodecOnnxDecoder(codec_path)
-        else:
-            self.codec = NeuCodecOnnxDecoder.from_pretrained(codec_path)
+            return NeuCodecOnnxDecoder(codec_path)
+        return NeuCodecOnnxDecoder.from_pretrained(codec_path)
 
     def _to_phones(self, text: str) -> str:
         phones = self.phonemizer.phonemize([text])
         phones = phones[0].split()
         phones = " ".join(phones)
         return phones
-
-    def _decode(self, codes: str) -> np.ndarray:
-        """Decode from string format (legacy). Prefer _decode_ids for performance."""
-        speech_ids = [int(num) for num in self._SPEECH_TOKEN_RE.findall(codes)]
-        return self._decode_ids(speech_ids)
 
     @staticmethod
     def encode_reference_audio(
