@@ -62,9 +62,7 @@ async def main() -> None:
     history = []
 
     while True:
-        command = input("Press Enter to record (or type 'q' to quit): ").strip()
-        if command.lower() in {"q", "quit", "exit"}:
-            break
+        input("Press Enter to record: ").strip()
 
         audio_b64 = record_audio(RECORD_SECONDS, INPUT_SAMPLE_RATE)
         agent.add_voice_message_to_history(history, audio_b64)
@@ -85,6 +83,7 @@ async def main() -> None:
         history.append({"role": "assistant", "content": reply})
 
         if reply.strip():
+            print("Generating TTS audio...")
             audio_chunks = list(
                 agent.speak(
                     text=reply,
