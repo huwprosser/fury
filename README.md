@@ -14,18 +14,18 @@ A flexible and powerful AI agent library for Python, designed to build agents wi
 
 ## Features
 
-- **Easy-to-use Agent API**: Simple interface to create agents with custom system prompts and models.
 - **Tool Support**: Define and register custom tools (functions) that the agent can execute.
 - **Parallel Tool Execution**: Built-in support for running multiple independent tools in parallel.
-- **Multimodal Capabilities**: Support for image and voice inputs (using Whisper for STT).
-- **Optional Text-to-Speech (TTS)**: Generate audio with NeuTTS via `Agent.speak()`.
+- **Image and Voice inputs**: Support for image and voice inputs (using Whisper for STT).
+- **Text-to-Speech (TTS)**: Generate audio with NeuTTS via `Agent.speak()`.
 - **Streaming Responses**: Real-time streaming of agent responses and reasoning.
 - **History Manager**: Optional history manager with auto-compaction for long conversations.
-- **OpenAI Compatible**: Built on top of `AsyncOpenAI`, making it compatible with OpenAI models and local inference servers (like vLLM, Ollama, etc.).
+- **OpenAI-Standard API Compatible**: Built on top of `AsyncOpenAI`, making it compatible with all OpenAI-API comaptible providers. (like Llama.cpp, SGLang, OpenRouter, vLLM, Ollama, etc.).
 
 ## Roadmap
 
 - Message regeneration.
+- Context-targeting history compaction.
 
 ## Installation
 
