@@ -1,6 +1,6 @@
 import asyncio
 
-from historymanager import HistoryManager, StaticHistoryManager
+from fury import HistoryManager, StaticHistoryManager
 
 
 class FakeCompletion:
