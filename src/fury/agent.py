@@ -20,7 +20,6 @@ from typing import (
     Union,
 )
 from openai import AsyncOpenAI
-from .neutts_minimal import NeuTTSMinimal
 
 logger = logging.getLogger(__name__)
 
@@ -215,6 +214,13 @@ class Agent:
             raise ValueError("Provide ref_text for TTS.")
 
         if self.tts is None:
+            try:
+                from .neutts_minimal import NeuTTSMinimal
+            except ModuleNotFoundError as exc:
+                raise ModuleNotFoundError(
+                    "TTS dependencies are not installed. "
+                    "Install fury-sdk[tts] and ensure espeak is available."
+                ) from exc
             self.tts = NeuTTSMinimal(
                 backbone_path=backbone_path,
                 codec_path=codec_path,
@@ -328,9 +334,9 @@ class Agent:
                             if tc_chunk.function.name:
                                 tc["function"]["name"] += tc_chunk.function.name
                             if tc_chunk.function.arguments:
-                                tc["function"][
-                                    "arguments"
-                                ] += tc_chunk.function.arguments
+                                tc["function"]["arguments"] += (
+                                    tc_chunk.function.arguments
+                                )
 
                     reasoning_content = getattr(delta, "reasoning_content", None)
                     if reasoning_content:
