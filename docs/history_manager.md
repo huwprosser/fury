@@ -2,6 +2,8 @@
 
 The `HistoryManager` manages conversation history (a list of `{role, content}` messages) and can automatically compact older messages into a summary when the context window gets tight. It is designed to drop into the same history list used by `Agent.chat()` and keeps the tail of recent messages intact.
 
+For strict non-summarizing history limits, use `StaticHistoryManager`. It keeps only the newest messages that fit inside a fixed `target_context_length`.
+
 ## How It Works
 
 `HistoryManager` estimates token usage by counting characters and dividing by four (roughly 4 chars per token). When the estimated total exceeds the configured context window minus the reserved tokens, it:
@@ -42,6 +44,24 @@ asyncio.run(main())
 ```
 
 For a runnable example, see `examples/history_manager.py`.
+
+## StaticHistoryManager
+
+`StaticHistoryManager` provides a fixed-size history window with no auto compaction and no summary calls. On initialization and every add/extend operation, it drops older messages until the newest messages fit inside `target_context_length`.
+
+```python
+from fury import StaticHistoryManager
+
+history_manager = StaticHistoryManager(
+    target_context_length=4096,
+    history=[
+        {"role": "system", "content": "You are a helpful assistant."},
+        {"role": "user", "content": "Hello"},
+    ],
+)
+```
+
+See `docs/example.md` for a full example.
 
 ## Configuration
 

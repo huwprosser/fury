@@ -19,7 +19,7 @@ A flexible and powerful AI agent library for Python, designed to build agents wi
 - **Image and Voice inputs**: Support for image and voice inputs (using Whisper for STT).
 - **Text-to-Speech (TTS)**: Generate audio with NeuTTS via `Agent.speak()`.
 - **Streaming Responses**: Real-time streaming of agent responses and reasoning.
-- **History Manager**: Optional history manager with auto-compaction for long conversations.
+- **History Managers**: Use `HistoryManager` for auto-compaction summaries or `StaticHistoryManager` for strict fixed-size context trimming.
 - **OpenAI-Standard API Compatible**: Built on top of `AsyncOpenAI`, making it compatible with all OpenAI-API compatible providers. (like Llama.cpp, SGLang, OpenRouter, vLLM, Ollama, etc.).
 
 ## Roadmap
@@ -121,6 +121,22 @@ if __name__ == "__main__":
     asyncio.run(main())
 
 ```
+
+### Static Context Window Example
+
+If you want no summarization and a hard history limit, use `StaticHistoryManager`:
+
+```python
+from fury import StaticHistoryManager
+
+history_manager = StaticHistoryManager(
+    target_context_length=4096,
+    history=[{"role": "system", "content": "You are helpful."}],
+)
+```
+
+It keeps only the newest messages that fit in the target context length.
+See `docs/example.md` for a complete example.
 
 ### Configuration Options
 
