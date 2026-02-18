@@ -270,8 +270,6 @@ class Agent:
             return str(res), None
 
         try:
-            if not reasoning and "qwen" in self.model.lower():
-                history[-1]["content"] = f"{history[-1]['content']} /no_think"
 
             if history is not None:
                 # Ensure the system prompt is included when caller provides history.
