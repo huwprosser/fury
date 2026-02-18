@@ -151,8 +151,6 @@ class Agent:
         if self.system_prompt:
             self.history.append({"role": "system", "content": self.system_prompt})
 
-        self._check_server_status()
-
         self.client = AsyncOpenAI(base_url=base_url, api_key=api_key)
         self.show_yourself()
 
@@ -334,9 +332,9 @@ class Agent:
                             if tc_chunk.function.name:
                                 tc["function"]["name"] += tc_chunk.function.name
                             if tc_chunk.function.arguments:
-                                tc["function"]["arguments"] += (
-                                    tc_chunk.function.arguments
-                                )
+                                tc["function"][
+                                    "arguments"
+                                ] += tc_chunk.function.arguments
 
                     reasoning_content = getattr(delta, "reasoning_content", None)
                     if reasoning_content:
@@ -505,34 +503,6 @@ class Agent:
             return f"Using {phrase.replace('[args]', str(arguments))}..."
 
         return f"Using {tool_name}..."
-
-    def _check_server_status(self) -> None:
-        """Verify the model is available on the configured server."""
-
-        def _model_loaded():
-            try:
-                response = requests.get(f"{self.base_url}/models", timeout=1)
-                if response.status_code != 200:
-                    return None
-                models = response.json().get("models", [])
-                return any(m.get("model") == self.model for m in models)
-            except Exception:
-                return None
-
-        loaded = _model_loaded()
-
-        if loaded is True:
-            cprint("Server Status: ", "yellow", end="")
-            cprint("OK", "green")
-            return
-        elif loaded is False:
-            cprint(
-                f"Server running but model {self.model} not available or loaded.",
-                "red",
-            )
-        else:
-            cprint("Server not reachable", "red")
-        exit(1)
 
     def _normalize_tool_name(self, name: str) -> str:
         """Strip provider prefixes from tool names."""
