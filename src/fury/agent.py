@@ -6,7 +6,6 @@ import base64
 import mimetypes
 import requests
 import asyncio
-import whisper
 from termcolor import cprint
 from .utils.audio import load_audio
 from dataclasses import dataclass
@@ -178,6 +177,8 @@ class Agent:
     ) -> List[Dict[str, Any]]:
         """Transcribe base64 audio and append it to the history as user content."""
         if not self.stt:
+            import whisper
+
             self.stt = whisper.load_model("base.en")
 
         audio, _ = load_audio(
